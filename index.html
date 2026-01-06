@@ -5,116 +5,254 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>買い物メモ</title>
     
-    <!-- PWA Meta Tags -->
+    <!-- PWA Settings -->
     <meta name="apple-mobile-web-app-title" content="買い物メモ">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="mobile-web-app-capable" content="yes">
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     
-    <!-- React and Libraries -->
+    <!-- Firebase SDK (Compatibility Mode) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+
+    <!-- React -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://unpkg.com/lucide@latest"></script>
 
     <style>
         body {
+            background-color: #f9fafb;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             -webkit-tap-highlight-color: transparent;
-            overscroll-behavior-y: none;
+            user-select: none;
         }
-        .pb-safe {
-            padding-bottom: env(safe-area-inset-bottom, 16px);
+        .safe-top { padding-top: env(safe-area-inset-top, 20px); }
+        .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 20px); }
+        .item-enter { animation: slideIn 0.3s ease-out forwards; }
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
-        .pt-safe {
-            padding-top: env(safe-area-inset-top, 20px);
-        }
+        /* スワイプ中のガタつき防止 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
     </style>
 </head>
-<body class="bg-gray-50">
+<body>
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
-        
-        // Lucide Icon Component Wrapper
-        const Icon = ({ name, size = 24, strokeWidth = 2, className = "" }) => {
-            const [svg, setSvg] = useState("");
-            useEffect(() => {
-                const icon = lucide.icons[name];
-                if (icon) {
-                    const svgString = lucide.createIcons({
-                        icons: { [name]: icon },
-                        attrs: { size, 'stroke-width': strokeWidth, class: className }
-                    });
-                }
-            }, [name, size, strokeWidth, className]);
-            
-            // Fallback using basic rendering since we are in a single file
-            const LucideIcon = lucide.icons[name];
-            if (!LucideIcon) return null;
-            
-            return <i data-lucide={name.toLowerCase()} style={{width: size, height: size}}></i>;
-        };
 
-        // --- Firebase setup would normally be here ---
-        // For the single file version, we use the global config provided by the environment
-        // In a real standalone app, you'd paste your firebaseConfig object here.
-        
+        // --- Firebase設定 ---
+        // Gemini環境の変数を取得、または空のオブジェクトを代入
+        const firebaseConfig = JSON.parse(window.__firebase_config || '{}');
+        const appId = window.__app_id || 'shopping-app-v1';
+
+        // Firebase初期化（一度だけ実行）
+        if (firebaseConfig.apiKey && !firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+
         const App = () => {
-            // Re-using the logic from your OneFile.jsx
-            // (Due to environment constraints, the Firebase imports and logic 
-            // are integrated here as they would be in a standalone web app)
-            
+            const [items, setItems] = useState(() => JSON.parse(localStorage.getItem('shop_cache') || '[]'));
+            const [inputValue, setInputValue] = useState('');
+            const [groupId, setGroupId] = useState(() => localStorage.getItem('shop_group') || '家族');
+            const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+            const [activeTab, setActiveTab] = useState('list'); // 'list' or 'history'
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                if (!firebaseConfig.apiKey) return;
+
+                // 匿名ログインしてFirestoreに接続
+                firebase.auth().signInAnonymously().then(() => {
+                    const db = firebase.firestore();
+                    const collectionPath = `artifacts/${appId}/public/data/items-${groupId}`;
+                    
+                    const unsubscribe = db.collection(collectionPath)
+                        .orderBy('createdAt', 'desc')
+                        .onSnapshot(snapshot => {
+                            const newItems = snapshot.docs.map(doc => ({
+                                id: doc.id,
+                                ...doc.data()
+                            }));
+                            setItems(newItems);
+                            localStorage.setItem('shop_cache', JSON.stringify(newItems));
+                            setLoading(false);
+                        }, err => {
+                            console.error("Firestore Error:", err);
+                            setLoading(false);
+                        });
+
+                    return () => unsubscribe();
+                });
+            }, [groupId]);
+
+            const addItem = async (e) => {
+                e.preventDefault();
+                if (!inputValue.trim()) return;
+                const name = inputValue.trim();
+                setInputValue('');
+                
+                try {
+                    await firebase.firestore().collection(`artifacts/${appId}/public/data/items-${groupId}`).add({
+                        name,
+                        completed: false,
+                        archived: false,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                } catch (err) { alert("追加に失敗しました"); }
+            };
+
+            const toggleItem = async (item) => {
+                await firebase.firestore().collection(`artifacts/${appId}/public/data/items-${groupId}`).doc(item.id).update({
+                    completed: !item.completed
+                });
+            };
+
+            const archiveItem = async (id) => {
+                await firebase.firestore().collection(`artifacts/${appId}/public/data/items-${groupId}`).doc(id).update({
+                    archived: true
+                });
+            };
+
+            const restoreItem = async (id) => {
+                await firebase.firestore().collection(`artifacts/${appId}/public/data/items-${groupId}`).doc(id).update({
+                    archived: false,
+                    completed: false
+                });
+            };
+
+            const deleteItem = async (id) => {
+                if(confirm("完全に削除しますか？")) {
+                    await firebase.firestore().collection(`artifacts/${appId}/public/data/items-${groupId}`).doc(id).delete();
+                }
+            };
+
+            const currentItems = items.filter(i => !i.archived);
+            const historyItems = items.filter(i => i.archived);
+
             return (
-                <div className="flex flex-col h-screen bg-gray-50 text-gray-800 font-sans overflow-hidden select-none touch-manipulation">
-                    <header className="bg-white shadow-sm z-10 px-4 py-3 flex justify-between items-center shrink-0 border-b border-gray-100 pt-safe">
-                        <div className="flex items-center gap-2">
-                            <div className="bg-green-500 text-white p-1.5 rounded-xl shadow-sm">
-                                <span className="font-bold">🛒</span>
-                            </div>
-                            <h1 className="font-bold text-lg tracking-tight">買い物メモ</h1>
+                <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 overflow-hidden">
+                    {/* Header */}
+                    <header className="bg-white border-b border-gray-100 px-6 py-4 safe-top flex justify-between items-center shrink-0">
+                        <div>
+                            <h1 className="text-xl font-black text-gray-800 tracking-tight flex items-center gap-2">
+                                <span className="text-2xl">🛒</span> {groupId}のメモ
+                            </h1>
                         </div>
-                        <button className="p-2 text-gray-400">⚙️</button>
+                        <button onClick={() => setIsSettingsOpen(true)} className="w-10 h-10 flex items-center justify-center bg-gray-100 rounded-full text-gray-500">
+                            ⚙️
+                        </button>
                     </header>
 
-                    <main className="flex-1 overflow-y-auto pb-32 px-4 py-4">
-                        <div className="max-w-2xl mx-auto text-center py-20 text-gray-400">
-                            <p className="mb-4">アプリをデプロイして、家族と共有を開始しましょう！</p>
-                            <div className="bg-blue-50 text-blue-700 p-4 rounded-2xl text-sm text-left">
-                                <strong>💡 公開の手順:</strong>
-                                <ol className="list-decimal ml-4 mt-2 space-y-1">
-                                    <li>このHTMLの内容を <code>index.html</code> という名前で保存</li>
-                                    <li>VercelやGitHub Pagesにアップロード</li>
-                                    <li>発行されたURLをスマホで開いて「ホーム画面に追加」</li>
-                                </ol>
-                            </div>
-                        </div>
+                    {/* Main List */}
+                    <main className="flex-1 overflow-y-auto px-4 py-4 no-scrollbar">
+                        {activeTab === 'list' ? (
+                            currentItems.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-64 text-gray-300">
+                                    <span className="text-64">📝</span>
+                                    <p className="mt-4 font-bold">リストは空っぽです</p>
+                                </div>
+                            ) : (
+                                currentItems.map(item => (
+                                    <div key={item.id} className="bg-white mb-3 p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 item-enter transition-all active:scale-95"
+                                         onClick={() => toggleItem(item)}>
+                                        <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}>
+                                            {item.completed && "✓"}
+                                        </div>
+                                        <span className={`flex-1 text-lg font-medium transition-all ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700'}`}>
+                                            {item.name}
+                                        </span>
+                                        {item.completed && (
+                                            <button onClick={(e) => { e.stopPropagation(); archiveItem(item.id); }} className="text-xs bg-gray-100 text-gray-400 px-3 py-1 rounded-full font-bold">
+                                                完了
+                                            </button>
+                                        )}
+                                    </div>
+                                ))
+                            )
+                        ) : (
+                            historyItems.length === 0 ? (
+                                <div className="text-center py-20 text-gray-300 font-bold">履歴はありません</div>
+                            ) : (
+                                historyItems.map(item => (
+                                    <div key={item.id} className="bg-gray-100 mb-2 p-4 rounded-xl flex items-center justify-between opacity-60">
+                                        <span className="text-gray-500 line-through">{item.name}</span>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => restoreItem(item.id)} className="bg-white px-3 py-1 rounded-lg text-sm font-bold text-green-600 shadow-sm">戻す</button>
+                                            <button onClick={() => deleteItem(item.id)} className="text-red-400 px-2">✕</button>
+                                        </div>
+                                    </div>
+                                ))
+                            )
+                        )}
                     </main>
 
-                    <nav className="bg-white/95 backdrop-blur-md border-t border-gray-100 shrink-0 z-20 pb-safe">
-                        <div className="flex justify-around items-center h-20 max-w-2xl mx-auto px-6">
-                            <div className="flex flex-col items-center text-green-600">
-                                <span className="text-2xl">🛒</span>
-                                <span className="text-[10px] mt-1 font-bold">リスト</span>
-                            </div>
-                            <div className="flex flex-col items-center text-gray-400">
-                                <span className="text-2xl">🕒</span>
-                                <span className="text-[10px] mt-1 font-bold">履歴</span>
+                    {/* Bottom Input Area */}
+                    {activeTab === 'list' && (
+                        <div className="p-4 bg-white border-t border-gray-100 safe-bottom shadow-2xl">
+                            <form onSubmit={addItem} className="flex gap-3">
+                                <input 
+                                    value={inputValue} 
+                                    onChange={e => setInputValue(e.target.value)}
+                                    placeholder="何を買う？" 
+                                    className="flex-1 bg-gray-100 rounded-2xl px-5 py-4 outline-none focus:ring-2 focus:ring-green-400 text-lg font-medium"
+                                />
+                                <button type="submit" className="bg-green-500 text-white w-14 h-14 rounded-2xl shadow-lg shadow-green-200 flex items-center justify-center text-3xl font-bold active:scale-90 transition-transform">
+                                    +
+                                </button>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Tab Navigation */}
+                    <nav className="bg-white border-t border-gray-100 flex justify-around safe-bottom">
+                        <button onClick={() => setActiveTab('list')} className={`flex-1 py-4 flex flex-col items-center gap-1 ${activeTab === 'list' ? 'text-green-600' : 'text-gray-400'}`}>
+                            <span className="text-2xl">🛒</span>
+                            <span className="text-[10px] font-black">リスト</span>
+                        </button>
+                        <button onClick={() => setActiveTab('history')} className={`flex-1 py-4 flex flex-col items-center gap-1 ${activeTab === 'history' ? 'text-green-600' : 'text-gray-400'}`}>
+                            <span className="text-2xl">🕒</span>
+                            <span className="text-[10px] font-black">履歴</span>
+                        </button>
+                    </nav>
+
+                    {/* Settings Modal */}
+                    {isSettingsOpen && (
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center">
+                            <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-8 animate-item">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h2 className="text-2xl font-black text-gray-800">家族と同期する</h2>
+                                    <button onClick={() => setIsSettingsOpen(false)} className="text-gray-300 text-2xl">✕</button>
+                                </div>
+                                <p className="text-gray-400 mb-6 font-medium">同じ「合言葉」を入れると、家族とリストを共有できます。</p>
+                                <input 
+                                    className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl px-5 py-4 mb-8 outline-none focus:border-green-500 text-xl font-bold"
+                                    defaultValue={groupId}
+                                    onBlur={(e) => {
+                                        const val = e.target.value.trim() || '家族';
+                                        setGroupId(val);
+                                        localStorage.setItem('shop_group', val);
+                                    }}
+                                />
+                                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-5 rounded-2xl font-black text-lg shadow-lg shadow-green-200 active:scale-95 transition-all">
+                                    設定を保存
+                                </button>
                             </div>
                         </div>
-                    </nav>
+                    )}
                 </div>
             );
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
-        
-        // Initialize icons
-        setTimeout(() => lucide.createIcons(), 100);
     </script>
 </body>
 </html>

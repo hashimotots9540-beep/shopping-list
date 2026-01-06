@@ -11,11 +11,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
     
-    <!-- Fonts & Icons -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
-    <!-- React & Firebase SDKs -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -25,45 +23,51 @@
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
         import { getFirestore, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-        // JSONパースのエラーを回避するための安全な取得処理
-        const getFirebaseConfig = () => {
-            try {
-                // window.__firebase_config が存在し、かつプレースホルダー文字列でない場合のみパース
-                if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
-                    return typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
-                }
-            } catch (e) {
-                console.error("Firebase config parse error:", e);
-            }
-            return null;
+        // --- 抜き出したFirebase設定 ---
+        const firebaseConfig = {
+            apiKey: "", 
+            authDomain: "",
+            projectId: "",
+            storageBucket: "",
+            messagingSenderId: "",
+            appId: ""
         };
 
-        const firebaseConfig = getFirebaseConfig();
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        // App ID
+        const appId = "shopping-app-v1";
 
-        if (firebaseConfig && firebaseConfig.apiKey) {
-            const app = initializeApp(firebaseConfig);
-            const auth = getAuth(app);
-            const db = getFirestore(app);
-            window.FB_SERVICES = { auth, db, appId, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp };
-        } else {
-            console.warn("Firebase config is missing or invalid. App will wait for config.");
-        }
+        // 初期化処理
+        const initFirebase = () => {
+            // apiKeyが空の場合は、環境変数（__firebase_config）からの取得を試みる
+            let config = firebaseConfig;
+            if (!config.apiKey && typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
+                config = typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
+            }
+
+            if (config && config.apiKey) {
+                const app = initializeApp(config);
+                const auth = getAuth(app);
+                const db = getFirestore(app);
+                window.FB_SERVICES = { auth, db, appId, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp };
+                return true;
+            }
+            return false;
+        };
+
+        initFirebase();
     </script>
 
     <style>
-        body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+        body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
         .pt-safe { padding-top: env(safe-area-inset-top, 20px); }
         .pb-safe { padding-bottom: env(safe-area-inset-bottom, 16px); }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .animate-item { animation: fadeIn 0.3s ease-out forwards; }
     </style>
 </head>
-<body class="bg-gray-50 antialiased">
+<body class="bg-gray-50">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect } = React;
 
         const App = () => {
             const [fb, setFb] = useState(null);
@@ -75,19 +79,32 @@
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
             useEffect(() => {
-                const checkFB = setInterval(() => {
+                const timer = setInterval(() => {
                     if (window.FB_SERVICES) {
                         setFb(window.FB_SERVICES);
-                        clearInterval(checkFB);
+                        clearInterval(timer);
                     }
-                }, 500);
-                return () => clearInterval(checkFB);
+                }, 100);
+                return () => clearInterval(timer);
             }, []);
 
             useEffect(() => {
                 if (!fb) return;
-                signInAnonymously(fb.auth).catch(console.error);
-                return onAuthStateChanged(fb.auth, setUser);
+                const { auth } = fb;
+                const { signInAnonymously } = fb; // moduleからインポート済み
+                
+                // 認証
+                const doAuth = async () => {
+                    try {
+                        // SDKから直接インポートした関数を使用
+                        const { getAuth, signInAnonymously } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js");
+                        await signInAnonymously(fb.auth);
+                    } catch (e) { console.error("Auth error", e); }
+                };
+                doAuth();
+                
+                const unsub = fb.auth.onAuthStateChanged(u => setUser(u));
+                return unsub;
             }, [fb]);
 
             useEffect(() => {
@@ -100,8 +117,6 @@
                     const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     setItems(data);
                     localStorage.setItem('shopping_items_cache', JSON.stringify(data));
-                }, (error) => {
-                    console.error("Firestore snapshot error:", error);
                 });
             }, [fb, user, groupId]);
 
@@ -110,137 +125,92 @@
                 if (!newItemName.trim() || !fb || !user) return;
                 const name = newItemName.trim();
                 setNewItemName('');
-                try {
-                    await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', `list-${groupId}`), {
-                        name, completed: false, archived: false, createdAt: fb.serverTimestamp()
-                    });
-                } catch (e) {
-                    console.error("Add item error:", e);
-                }
+                await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', `list-${groupId}`), {
+                    name, completed: false, archived: false, createdAt: fb.serverTimestamp()
+                });
             };
 
             const toggle = async (item) => {
-                if (!fb || !user) return;
                 await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `list-${groupId}`, item.id), {
                     completed: !item.completed
                 });
             };
 
             const archive = async (item) => {
-                if (!fb || !user) return;
                 await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `list-${groupId}`, item.id), {
                     archived: true
                 });
             };
 
-            const activeItems = items.filter(i => !i.archived);
-            const archivedItems = items.filter(i => i.archived);
-
             if (!fb) {
                 return (
-                    <div className="flex flex-col items-center justify-center h-screen bg-gray-50 p-6 text-center">
-                        <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-                        <p className="text-gray-500 font-bold">アプリを起動中...</p>
-                        <p className="text-xs text-gray-400 mt-2">設定の読み込みを待機しています</p>
+                    <div className="flex flex-col items-center justify-center h-screen bg-white">
+                        <div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                        <p className="text-gray-400 font-bold tracking-widest">CONNECTING...</p>
                     </div>
                 );
             }
 
             return (
-                <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 shadow-2xl relative">
-                    <header className="bg-white/80 backdrop-blur-md px-6 py-4 pt-safe border-b border-gray-100 flex justify-between items-center sticky top-0 z-20">
-                        <div className="flex items-center gap-3">
-                            <div className="bg-green-500 p-2 rounded-xl text-white shadow-lg shadow-green-200">
-                                <i data-lucide="shopping-cart" className="w-5 h-5"></i>
-                            </div>
-                            <h1 className="font-bold text-xl tracking-tight text-gray-800">{groupId === 'family' ? '買い物メモ' : groupId}</h1>
+                <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 relative overflow-hidden">
+                    <header className="bg-white/80 backdrop-blur-md px-6 py-4 pt-safe border-b flex justify-between items-center sticky top-0 z-20">
+                        <div className="flex items-center gap-2">
+                            <div className="bg-green-500 text-white p-1 rounded-lg"><i data-lucide="shopping-cart" className="w-5 h-5"></i></div>
+                            <h1 className="font-bold text-lg text-gray-800">{groupId === 'family' ? '買い物メモ' : groupId}</h1>
                         </div>
-                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-colors">
-                            <i data-lucide="settings" className="w-6 h-6"></i>
-                        </button>
+                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400"><i data-lucide="settings"></i></button>
                     </header>
 
-                    <main className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+                    <main className="flex-1 overflow-y-auto px-4 py-6 space-y-3">
                         {activeTab === 'list' ? (
-                            activeItems.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-64 text-gray-300">
-                                    <i data-lucide="package-open" className="w-16 h-16 mb-4 opacity-20"></i>
-                                    <p className="font-medium">買うものはありません</p>
-                                </div>
-                            ) : (
-                                activeItems.map(item => (
-                                    <div key={item.id} 
-                                        onClick={() => toggle(item)}
-                                        className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 active:scale-[0.98] transition-all animate-item">
-                                        <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}>
-                                            {item.completed && <i data-lucide="check" className="w-4 h-4 stroke-[4]"></i>}
-                                        </div>
-                                        <span className={`text-lg flex-1 truncate ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700 font-medium'}`}>{item.name}</span>
-                                        {!item.completed && (
-                                            <button onClick={(e) => { e.stopPropagation(); archive(item); }} className="text-gray-300 p-2">
-                                                <i data-lucide="archive" className="w-5 h-5"></i>
-                                            </button>
-                                        )}
+                            items.filter(i => !i.archived).map(item => (
+                                <div key={item.id} onClick={() => toggle(item)} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 active:scale-95 transition-transform">
+                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}>
+                                        {item.completed && <i data-lucide="check" className="w-4 h-4 stroke-[4]"></i>}
                                     </div>
-                                ))
-                            )
+                                    <span className={`text-lg flex-1 truncate ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700 font-medium'}`}>{item.name}</span>
+                                    {item.completed && <button onClick={(e) => { e.stopPropagation(); archive(item); }} className="text-gray-300"><i data-lucide="archive" className="w-5 h-5"></i></button>}
+                                </div>
+                            ))
                         ) : (
-                            archivedItems.map(item => (
-                                <div key={item.id} className="bg-white/50 p-4 rounded-2xl border border-gray-100 flex items-center gap-4 opacity-60">
-                                    <span className="text-gray-400 line-through flex-1">{item.name}</span>
-                                    <i data-lucide="history" className="w-5 h-5 text-gray-300"></i>
+                            items.filter(i => i.archived).map(item => (
+                                <div key={item.id} className="bg-white/50 p-4 rounded-xl text-gray-400 line-through border border-dashed flex justify-between">
+                                    <span>{item.name}</span>
+                                    <i data-lucide="history" className="w-4 h-4"></i>
                                 </div>
                             ))
                         )}
                     </main>
 
                     {activeTab === 'list' && (
-                        <div className="absolute bottom-24 left-0 right-0 px-4">
-                            <form onSubmit={addItem} className="flex gap-2 bg-white p-2 rounded-full shadow-2xl border border-gray-100">
-                                <input 
-                                    value={newItemName}
-                                    onChange={e => setNewItemName(e.target.value)}
-                                    placeholder="何を買う？"
-                                    className="flex-1 px-4 py-2 outline-none bg-transparent text-lg"
-                                />
-                                <button disabled={!newItemName.trim() || !user} className="bg-green-500 text-white p-3 rounded-full shadow-lg disabled:opacity-20 active:scale-90 transition-transform">
-                                    <i data-lucide="plus" className="w-6 h-6 stroke-[3]"></i>
-                                </button>
+                        <div className="p-4 pb-safe bg-white/80 backdrop-blur-md border-t">
+                            <form onSubmit={addItem} className="flex gap-2">
+                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="何を買う？" className="flex-1 bg-gray-100 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-green-400 font-bold" />
+                                <button type="submit" className="bg-green-500 text-white px-6 py-3 rounded-xl font-bold shadow-lg active:scale-90 transition-transform">+</button>
                             </form>
                         </div>
                     )}
 
-                    <nav className="bg-white/90 backdrop-blur-md border-t border-gray-100 flex justify-around items-center h-20 pb-safe z-10">
+                    <nav className="bg-white border-t flex justify-around items-center h-20 pb-safe shrink-0">
                         <button onClick={() => setActiveTab('list')} className={`flex flex-col items-center gap-1 ${activeTab === 'list' ? 'text-green-600' : 'text-gray-400'}`}>
-                            <i data-lucide="shopping-basket" className="w-7 h-7"></i>
-                            <span className="text-[10px] font-bold">リスト</span>
+                            <i data-lucide="list"></i><span className="text-[10px] font-bold">リスト</span>
                         </button>
                         <button onClick={() => setActiveTab('archive')} className={`flex flex-col items-center gap-1 ${activeTab === 'archive' ? 'text-green-600' : 'text-gray-400'}`}>
-                            <i data-lucide="history" className="w-7 h-7"></i>
-                            <span className="text-[10px] font-bold">履歴</span>
+                            <i data-lucide="history"></i><span className="text-[10px] font-bold">履歴</span>
                         </button>
                     </nav>
 
                     {isSettingsOpen && (
-                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center">
-                            <div className="bg-white w-full max-w-md rounded-t-3xl p-8 pb-safe shadow-2xl">
-                                <h2 className="text-2xl font-black mb-4 flex items-center gap-2">
-                                    <i data-lucide="users" className="text-green-500 w-8 h-8"></i>共有設定
-                                </h2>
-                                <p className="text-gray-500 mb-6">家族と同じ「合言葉」を入力して同期します。</p>
-                                <input 
-                                    defaultValue={groupId}
-                                    onBlur={e => {
-                                        const val = e.target.value.trim();
-                                        if(val) {
-                                            setGroupId(val);
-                                            localStorage.setItem('shopping_app_group_id', val);
-                                        }
-                                    }}
-                                    className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl px-6 py-4 text-xl font-bold outline-none focus:border-green-500 transition-colors"
-                                    placeholder="sato-family"
-                                />
-                                <button onClick={() => setIsSettingsOpen(false)} className="w-full mt-6 py-4 bg-green-500 text-white rounded-2xl font-bold text-lg shadow-xl shadow-green-100 active:scale-95 transition-transform">閉じる</button>
+                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
+                            <div className="bg-white w-full rounded-3xl p-8 shadow-2xl">
+                                <h2 className="text-xl font-bold mb-2">共有設定</h2>
+                                <p className="text-xs text-gray-400 mb-6">家族と同じ「合言葉」を入れると同期します。</p>
+                                <input defaultValue={groupId} onBlur={e => { 
+                                    const val = e.target.value.trim() || 'family';
+                                    setGroupId(val); 
+                                    localStorage.setItem('shopping_app_group_id', val); 
+                                }} className="w-full bg-gray-50 border-2 rounded-2xl p-4 mb-6 font-bold outline-none focus:border-green-500" />
+                                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold shadow-lg">設定を保存</button>
                             </div>
                         </div>
                     )}
@@ -250,9 +220,7 @@
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
-        
-        // Lucide icon replacement helper
-        setInterval(() => lucide.createIcons(), 500);
+        setInterval(() => { if(window.lucide) lucide.createIcons(); }, 1000);
     </script>
 </body>
 </html>

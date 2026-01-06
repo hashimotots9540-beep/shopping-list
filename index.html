@@ -11,7 +11,6 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
     
-    <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -24,98 +23,88 @@
         import { getFirestore, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         // --- Firebase Configuration ---
-        // Vercelで動かすために必要な設定値です
-const firebaseConfig = {
-  apiKey: "AIzaSyD-YOUR-ACTUAL-API-KEY",
-  authDomain: "shopping-app-v1.firebaseapp.com",
-  projectId: "shopping-app-v1",
-  storageBucket: "shopping-app-v1.appspot.com",
-  messagingSenderId: "7748593021",
-  appId: "1:7748593021:web:a1b2c3d4e5f6g7h8i9j0"
+        // ★重要: Firebaseコンソールから取得した自分の設定をここに貼り付けてください
+        const firebaseConfig = {
+  apiKey: "AIzaSyDIAGr2mjSyqrk22jIqrEsfcSP9CCmr5wM",
+  authDomain: "awsome-ee102.firebaseapp.com",
+  projectId: "awsome-ee102",
+  storageBucket: "awsome-ee102.firebasestorage.app",
+  messagingSenderId: "113529271126",
+  appId: "1:113529271126:web:c2dc9667a0fba90712dcf7",
+  measurementId: "G-TR7LXHTE8Z"
 };
 
-        const appId = "shopping-app-v1";
+        // 一意のアプリ識別子（デフォルトのままでも動作します）
+        const appId = "my-shopping-app";
 
-        // Firebaseの初期化とwindowへの公開（Reactからアクセスするため）
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        
-        window.FB_SERVICES = { 
-            auth, db, appId, collection, query, onSnapshot, 
-            orderBy, addDoc, updateDoc, deleteDoc, doc, 
-            serverTimestamp, signInAnonymously, onAuthStateChanged 
-        };
+        try {
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
+            const db = getFirestore(app);
+            
+            window.FB_SERVICES = { 
+                auth, db, appId, collection, query, onSnapshot, 
+                orderBy, addDoc, updateDoc, deleteDoc, doc, 
+                serverTimestamp, signInAnonymously, onAuthStateChanged 
+            };
+        } catch (e) {
+            console.error("Firebase init error:", e);
+        }
     </script>
 
     <style>
         body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         .pt-safe { padding-top: env(safe-area-inset-top, 20px); }
         .pb-safe { padding-bottom: env(safe-area-inset-bottom, 16px); }
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        input, button { outline: none !important; }
     </style>
 </head>
-<body class="bg-gray-50">
+<body class="bg-gray-50 text-gray-900">
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // LucideアイコンをReactで使うための簡易コンポーネント
         const Icon = ({ name, size = 24, className = "" }) => {
-            const iconRef = useRef(null);
-            useEffect(() => {
-                if (window.lucide) {
-                    window.lucide.createIcons();
-                }
-            }, [name]);
+            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
             return <i data-lucide={name} className={className} style={{ width: size, height: size }}></i>;
         };
 
         const App = () => {
             const [fb, setFb] = useState(null);
             const [user, setUser] = useState(null);
-            const [items, setItems] = useState(() => JSON.parse(localStorage.getItem('shopping_items_cache') || '[]'));
+            const [items, setItems] = useState([]);
             const [newItemName, setNewItemName] = useState('');
             const [groupId, setGroupId] = useState(() => localStorage.getItem('shopping_app_group_id') || 'family');
             const [activeTab, setActiveTab] = useState('list');
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-            const [tempGroupId, setTempGroupId] = useState(groupId);
+            const [status, setStatus] = useState('Connecting...');
 
-            // SDKがロードされるのを待つ
             useEffect(() => {
-                const timer = setInterval(() => {
+                const checkFB = setInterval(() => {
                     if (window.FB_SERVICES) {
                         setFb(window.FB_SERVICES);
-                        clearInterval(timer);
+                        clearInterval(checkFB);
                     }
                 }, 100);
-                return () => clearInterval(timer);
+                return () => clearInterval(checkFB);
             }, []);
 
-            // 認証処理
             useEffect(() => {
                 if (!fb) return;
-                fb.signInAnonymously(fb.auth).catch(console.error);
+                fb.signInAnonymously(fb.auth).catch(err => setStatus('Auth Error: ' + err.message));
                 return fb.onAuthStateChanged(fb.auth, setUser);
             }, [fb]);
 
-            // データのリアルタイム購読
             useEffect(() => {
                 if (!fb || !user) return;
-                const collectionName = `shopping-list-${groupId}`;
-                const q = fb.query(
-                    fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', collectionName),
-                    fb.orderBy('createdAt', 'desc')
-                );
-                return fb.onSnapshot(q, (snapshot) => {
-                    const data = snapshot.docs.map(doc => ({
-                        id: doc.id,
-                        ...doc.data()
-                    }));
-                    setItems(data);
-                    localStorage.setItem('shopping_items_cache', JSON.stringify(data));
-                });
+                const colRef = fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`);
+                const q = fb.query(colRef, fb.orderBy('createdAt', 'desc'));
+                
+                return fb.onSnapshot(q, (ss) => {
+                    setItems(ss.docs.map(d => ({ id: d.id, ...d.data() })));
+                    setStatus('Connected');
+                }, (err) => setStatus('Sync Error: ' + err.message));
             }, [fb, user, groupId]);
 
             const addItem = async (e) => {
@@ -123,9 +112,11 @@ const firebaseConfig = {
                 if (!newItemName.trim() || !fb || !user) return;
                 const name = newItemName.trim();
                 setNewItemName('');
-                await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`), {
-                    name, completed: false, archived: false, createdAt: fb.serverTimestamp()
-                });
+                try {
+                    await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`), {
+                        name, completed: false, archived: false, createdAt: fb.serverTimestamp()
+                    });
+                } catch (err) { setStatus('Add Error: ' + err.message); }
             };
 
             const toggle = async (item) => {
@@ -140,79 +131,80 @@ const firebaseConfig = {
                 });
             };
 
-            const saveSettings = () => {
-                const val = tempGroupId.trim() || 'family';
-                setGroupId(val);
-                localStorage.setItem('shopping_app_group_id', val);
-                setIsSettingsOpen(false);
+            const restore = async (item) => {
+                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), {
+                    archived: false, createdAt: fb.serverTimestamp()
+                });
             };
 
             if (!fb) return (
                 <div className="flex flex-col items-center justify-center h-screen space-y-4">
                     <div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="font-bold text-gray-400">CONNECTING...</p>
+                    <p className="text-gray-400 font-bold tracking-widest uppercase text-xs">Loading Firebase...</p>
                 </div>
             );
 
             return (
-                <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 relative overflow-hidden">
+                <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 relative overflow-hidden shadow-2xl">
                     <header className="bg-white px-6 py-4 pt-safe border-b flex justify-between items-center shrink-0">
                         <div className="flex items-center gap-2">
-                            <div className="bg-green-500 text-white p-1.5 rounded-xl shadow-sm"><Icon name="shopping-cart" size={20} /></div>
-                            <h1 className="font-bold text-lg">{groupId === 'family' ? 'お買い物メモ' : groupId}</h1>
+                            <div className="bg-green-500 text-white p-2 rounded-xl"><Icon name="shopping-cart" size={18} /></div>
+                            <div>
+                                <h1 className="font-black text-lg leading-none">{groupId}</h1>
+                                <span className="text-[10px] text-gray-400 font-bold uppercase">{status}</span>
+                            </div>
                         </div>
-                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400"><Icon name="settings" /></button>
+                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400 hover:text-gray-600"><Icon name="settings" /></button>
                     </header>
 
-                    <main className="flex-1 overflow-y-auto px-4 py-6 space-y-3 hide-scrollbar">
-                        {activeTab === 'list' ? (
-                            items.filter(i => !i.archived).map(item => (
-                                <div key={item.id} onClick={() => toggle(item)} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 active:scale-[0.98] transition-all">
-                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}>
-                                        {item.completed && <Icon name="check" size={16} />}
-                                    </div>
-                                    <span className={`text-lg flex-1 truncate ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700 font-medium'}`}>{item.name}</span>
-                                    {item.completed && <button onClick={(e) => { e.stopPropagation(); archive(item); }} className="text-gray-300"><Icon name="archive" size={20} /></button>}
+                    <main className="flex-1 overflow-y-auto px-4 py-6 space-y-3">
+                        {items.filter(i => (activeTab === 'list' ? !i.archived : i.archived)).map(item => (
+                            <div key={item.id} onClick={() => activeTab === 'list' && toggle(item)} 
+                                className={`bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 transition-all active:scale-95 ${item.completed && activeTab === 'list' ? 'opacity-60' : ''}`}>
+                                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}>
+                                    {item.completed && <Icon name="check" size={14} />}
                                 </div>
-                            ))
-                        ) : (
-                            items.filter(i => i.archived).map(item => (
-                                <div key={item.id} className="bg-white/50 p-4 rounded-xl text-gray-400 line-through border border-dashed flex justify-between">
-                                    <span>{item.name}</span>
-                                    <Icon name="history" size={16} />
-                                </div>
-                            ))
-                        )}
+                                <span className={`text-lg flex-1 truncate ${item.completed ? 'text-gray-400 line-through' : 'text-gray-700 font-bold'}`}>{item.name}</span>
+                                {activeTab === 'list' ? (
+                                    item.completed && <button onClick={(e) => { e.stopPropagation(); archive(item); }} className="text-orange-400 p-2"><Icon name="archive" size={20} /></button>
+                                ) : (
+                                    <button onClick={() => restore(item)} className="text-green-500 p-2"><Icon name="rotate-ccw" size={20} /></button>
+                                )}
+                            </div>
+                        ))}
+                        {items.length === 0 && <div className="text-center py-20 text-gray-300 font-bold uppercase tracking-widest text-sm">No Items</div>}
                     </main>
 
                     {activeTab === 'list' && (
                         <div className="p-4 pb-safe bg-white border-t">
-                            <form onSubmit={addItem} className="flex gap-2">
-                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="何を買う？" className="flex-1 bg-gray-100 rounded-2xl px-5 py-3.5 outline-none font-bold text-lg" />
-                                <button type="submit" disabled={!newItemName.trim()} className="bg-green-500 text-white px-6 rounded-2xl font-bold shadow-lg disabled:opacity-50 active:scale-90 transition-transform text-2xl">+</button>
+                            <form onSubmit={addItem} className="flex gap-2 bg-gray-100 p-1 rounded-2xl">
+                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="何を買う？" 
+                                    className="flex-1 bg-transparent px-5 py-3 outline-none font-bold text-lg" />
+                                <button type="submit" disabled={!newItemName.trim()} className="bg-green-500 text-white w-12 h-12 rounded-xl font-bold shadow-lg disabled:opacity-30 active:scale-90 transition-transform">＋</button>
                             </form>
                         </div>
                     )}
 
                     <nav className="bg-white border-t flex justify-around items-center h-20 pb-safe shrink-0">
-                        <button onClick={() => setActiveTab('list')} className={`flex flex-col items-center gap-1 ${activeTab === 'list' ? 'text-green-600' : 'text-gray-400'}`}>
-                            <Icon name="list" /><span className="text-[10px] font-bold">リスト</span>
+                        <button onClick={() => setActiveTab('list')} className={`flex flex-col items-center gap-1 w-full ${activeTab === 'list' ? 'text-green-600' : 'text-gray-300'}`}>
+                            <Icon name="list" size={24} /><span className="text-[10px] font-black uppercase">List</span>
                         </button>
-                        <button onClick={() => setActiveTab('archive')} className={`flex flex-col items-center gap-1 ${activeTab === 'archive' ? 'text-green-600' : 'text-gray-400'}`}>
-                            <Icon name="history" /><span className="text-[10px] font-bold">履歴</span>
+                        <button onClick={() => setActiveTab('archive')} className={`flex flex-col items-center gap-1 w-full ${activeTab === 'archive' ? 'text-green-600' : 'text-gray-300'}`}>
+                            <Icon name="history" size={24} /><span className="text-[10px] font-black uppercase">History</span>
                         </button>
                     </nav>
 
                     {isSettingsOpen && (
-                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center">
-                            <div className="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-8 shadow-2xl animate-in slide-in-from-bottom-full duration-300">
-                                <h2 className="text-2xl font-black mb-2">家族と共有</h2>
-                                <p className="text-gray-500 mb-6">合言葉を設定して同期します。</p>
-                                <input value={tempGroupId} onChange={e => setTempGroupId(e.target.value)} className="w-full bg-gray-50 border-2 rounded-2xl p-4 mb-6 font-bold text-lg outline-none focus:border-green-500" />
-                                <div className="flex gap-3">
-                                    <button onClick={() => setIsSettingsOpen(false)} className="flex-1 bg-gray-100 py-4 rounded-2xl font-bold">戻る</button>
-                                    <button onClick={saveSettings} className="flex-1 bg-green-500 text-white py-4 rounded-2xl font-bold shadow-lg">保存</button>
-                                </div>
+                        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-end justify-center">
+                            <div className="bg-white w-full max-w-md rounded-t-3xl p-8 pb-safe animate-in slide-in-from-bottom-full duration-300">
+                                <h2 className="text-2xl font-black mb-2 flex items-center gap-2 text-green-600"><Icon name="users" /> 合言葉</h2>
+                                <p className="text-gray-400 text-sm mb-6 font-bold">同じIDを入れると家族と共有されます。</p>
+                                <input defaultValue={groupId} onBlur={e => { 
+                                    const val = e.target.value.trim() || 'family';
+                                    setGroupId(val); 
+                                    localStorage.setItem('shopping_app_group_id', val); 
+                                }} className="w-full bg-gray-100 border-none rounded-2xl p-4 mb-6 font-bold text-xl text-center focus:ring-2 ring-green-500" />
+                                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-5 rounded-2xl font-black text-lg shadow-xl active:scale-95 transition-transform">保存して戻る</button>
                             </div>
                         </div>
                     )}
@@ -225,4 +217,3 @@ const firebaseConfig = {
     </script>
 </body>
 </html>
-

@@ -17,10 +17,12 @@
     <link rel="manifest" id="pwa-manifest">
     <script>
         const manifest = {
+            "id": "com.shopping.memo.v1",
             "name": "買い物メモ",
             "short_name": "買い物",
-            "start_url": "./",
+            "start_url": "./index.html",
             "display": "standalone",
+            "orientation": "portrait",
             "background_color": "#ffffff",
             "theme_color": "#22c55e",
             "icons": [
@@ -28,7 +30,7 @@
                     "src": "https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png",
                     "sizes": "192x192",
                     "type": "image/png",
-                    "purpose": "any maskable"
+                    "purpose": "any"
                 },
                 {
                     "src": "https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png",
@@ -54,12 +56,7 @@
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
         import { getFirestore, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-        /**
-         * 【重要】Firebaseの設定情報はここに記述します
-         * 自分でアプリを公開する場合は、Firebase Consoleからコピーした
-         * configオブジェクトを以下に貼り付けてください。
-         */
-         const firebaseConfig = {
+ const firebaseConfig = {
   apiKey: "AIzaSyDIAGr2mjSyqrk22jIqrEsfcSP9CCmr5wM",
   authDomain: "awsome-ee102.firebaseapp.com",
   projectId: "awsome-ee102",
@@ -68,6 +65,7 @@
   appId: "1:113529271126:web:c2dc9667a0fba90712dcf7",
   measurementId: "G-TR7LXHTE8Z"
 };
+
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-shopping-app';
 
         try {
@@ -81,18 +79,18 @@
             };
         } catch (e) { console.error("Firebase Init Error:", e); }
 
-        // Service Worker registration (Android Chrome Install Support)
+        // Service Worker (Stronger implementation for Android)
         if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                const swCode = `
-                    self.addEventListener('install', (e) => self.skipWaiting());
-                    self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));
-                    self.addEventListener('fetch', (e) => e.respondWith(fetch(e.request)));
-                `;
-                const blob = new Blob([swCode], { type: 'text/javascript' });
-                const swUrl = URL.createObjectURL(blob);
-                navigator.serviceWorker.register(swUrl).catch(err => console.log('SW failed', err));
-            });
+            const swCode = `
+                self.addEventListener('install', e => self.skipWaiting());
+                self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+                self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
+            `;
+            const blob = new Blob([swCode], { type: 'text/javascript' });
+            const swUrl = URL.createObjectURL(blob);
+            navigator.serviceWorker.register(swUrl).then(reg => {
+                console.log('SW registered');
+            }).catch(err => console.log('SW registration failed', err));
         }
     </script>
 
@@ -101,29 +99,65 @@
             --sat: env(safe-area-inset-top);
             --sab: env(safe-area-inset-bottom);
         }
-        * { touch-action: manipulation; } /* 白画面・ズーム防止 */
+        
+        /* 全体的なタップ制御 */
+        * { 
+            touch-action: manipulation; 
+            -webkit-tap-highlight-color: transparent;
+        }
+
         body { 
-            -webkit-tap-highlight-color: transparent; 
             overscroll-behavior-y: none; 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: #f9fafb;
             user-select: none;
+            -webkit-user-select: none;
+            -webkit-touch-callout: none; /* 長押しメニュー禁止 */
         }
-        input { user-select: text; }
+
+        input { 
+            user-select: text; 
+            -webkit-user-select: text; 
+        }
+
         .header-padding { padding-top: calc(var(--sat) + 12px); }
         .footer-padding { padding-bottom: calc(var(--sab) + 8px); }
+
         .swipe-container { position: relative; overflow: hidden; border-radius: 1.25rem; }
-        .swipe-content { position: relative; z-index: 10; transition: transform 0.2s ease-out; touch-action: pan-y; background: white; }
-        .swipe-action-bg { position: absolute; right: 0; top: 0; bottom: 0; background: #fb923c; color: white; display: flex; align-items: center; justify-content: flex-end; padding-right: 1.5rem; width: 100%; border-radius: 1.25rem; }
-        .fade-in { animation: fadeIn 0.3s ease-in-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .swipe-content { 
+            position: relative; 
+            z-index: 10; 
+            transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1); 
+            touch-action: pan-y; 
+            background: white; 
+        }
+        .swipe-action-bg { 
+            position: absolute; 
+            right: 0; 
+            top: 0; 
+            bottom: 0; 
+            background: #fb923c; 
+            color: white; 
+            display: flex; 
+            align-items: center; 
+            justify-content: flex-end; 
+            padding-right: 1.5rem; 
+            width: 100%; 
+            border-radius: 1.25rem; 
+        }
+        
+        .fade-in { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* スワイプ中のガクつき防止 */
+        .no-select { pointer-events: none; }
     </style>
 </head>
 <body class="bg-gray-50">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect, useCallback } = React;
 
         const Icon = ({ name, size = 24, className = "" }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
@@ -133,23 +167,41 @@
         const ShoppingItem = ({ item, onToggle, onArchive, onRestore, onDelete, isActive }) => {
             const [startX, setStartX] = useState(0);
             const [currentX, setCurrentX] = useState(0);
+            const [isDragging, setIsDragging] = useState(false);
             const threshold = -80;
 
-            const handleTouchStart = (e) => { if (!isActive) return; setStartX(e.touches[0].clientX); };
+            const handleTouchStart = (e) => { 
+                if (!isActive) return; 
+                setStartX(e.touches[0].clientX); 
+                setIsDragging(true);
+            };
             const handleTouchMove = (e) => { 
-                if (!isActive) return;
+                if (!isActive || !isDragging) return;
                 const diff = e.touches[0].clientX - startX;
-                if (diff < 0) setCurrentX(Math.max(diff, -120));
+                if (diff < 0) {
+                    setCurrentX(Math.max(diff, -120));
+                }
             };
             const handleTouchEnd = () => {
-                if (currentX < threshold) onArchive(item);
+                if (!isDragging) return;
+                setIsDragging(false);
+                if (currentX < threshold) {
+                    onArchive(item);
+                }
                 setCurrentX(0);
+            };
+
+            const handleItemClick = (e) => {
+                // スワイプ中でなければトグル
+                if (Math.abs(currentX) < 5) {
+                    onToggle(item);
+                }
             };
 
             return (
                 <div className="swipe-container mb-3 shadow-sm border border-gray-100 fade-in">
                     {isActive && (
-                        <div className="swipe-action-bg" style={{ opacity: Math.min(Math.abs(currentX) / 50, 1) }}>
+                        <div className="swipe-action-bg" style={{ opacity: Math.abs(currentX) > 10 ? 1 : 0 }}>
                             <div className="flex flex-col items-center">
                                 <Icon name="archive" size={20} />
                                 <span className="text-[10px] font-bold">完了</span>
@@ -157,26 +209,45 @@
                         </div>
                     )}
                     <div 
-                        className="swipe-content p-4 flex items-center gap-4 cursor-pointer active:bg-gray-50"
+                        className={`swipe-content p-4 flex items-center gap-4 cursor-pointer active:bg-gray-50 ${isDragging ? 'no-select' : ''}`}
                         style={{ transform: `translateX(${currentX}px)` }}
                         onTouchStart={handleTouchStart}
                         onTouchMove={handleTouchMove}
                         onTouchEnd={handleTouchEnd}
+                        onClick={handleItemClick}
                     >
                         {isActive ? (
                             <>
-                                <div onClick={(e) => { e.stopPropagation(); onToggle(item); }} className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${item.completed ? 'bg-green-500 border-green-500 text-white shadow-inner' : 'border-gray-200'}`}>
-                                    {item.completed && <Icon name="check" size={18} />}
+                                <div 
+                                    onClick={(e) => { 
+                                        e.stopPropagation(); // 親の onClick を発火させない
+                                        onToggle(item); 
+                                    }} 
+                                    className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}
+                                >
+                                    {item.completed && <Icon name="check" size={20} />}
                                 </div>
-                                <span onClick={() => onToggle(item)} className={`text-lg flex-1 truncate font-medium ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700'}`}>{item.name}</span>
-                                {item.completed && <div className="text-gray-200 flex items-center gap-1 text-[10px]"><Icon name="chevrons-left" size={14} /> swipe</div>}
+                                <span className={`text-lg flex-1 truncate font-medium ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700'}`}>
+                                    {item.name}
+                                </span>
+                                {item.completed && !isDragging && <Icon name="chevrons-left" size={16} className="text-gray-200" />}
                             </>
                         ) : (
                             <>
                                 <span className="text-gray-400 line-through flex-1 truncate">{item.name}</span>
                                 <div className="flex gap-2 shrink-0">
-                                    <button onClick={() => onRestore(item)} className="p-3 text-green-600 bg-green-50 rounded-full active:scale-90 transition-transform"><Icon name="rotate-ccw" size={18} /></button>
-                                    <button onClick={() => onDelete(item.id)} className="p-3 text-red-400 bg-red-50 rounded-full active:scale-90 transition-transform"><Icon name="trash-2" size={18} /></button>
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); onRestore(item); }} 
+                                        className="p-3 text-green-600 bg-green-50 rounded-full active:scale-90"
+                                    >
+                                        <Icon name="rotate-ccw" size={18} />
+                                    </button>
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); onDelete(item.id); }} 
+                                        className="p-3 text-red-400 bg-red-50 rounded-full active:scale-90"
+                                    >
+                                        <Icon name="trash-2" size={18} />
+                                    </button>
                                 </div>
                             </>
                         )}
@@ -196,7 +267,7 @@
             const [loading, setLoading] = useState(true);
 
             useEffect(() => {
-                const timer = setInterval(() => { if (window.FB_SERVICES) { setFb(window.FB_SERVICES); clearInterval(timer); } }, 500);
+                const timer = setInterval(() => { if (window.FB_SERVICES) { setFb(window.FB_SERVICES); clearInterval(timer); } }, 200);
                 return () => clearInterval(timer);
             }, []);
 
@@ -238,15 +309,22 @@
             };
 
             const toggle = async (item) => {
-                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { completed: !item.completed });
+                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { 
+                    completed: !item.completed 
+                });
             };
 
             const archive = async (item) => {
-                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { archived: true });
+                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { 
+                    archived: true 
+                });
             };
 
             const restore = async (item) => {
-                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { archived: false, completed: false });
+                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { 
+                    archived: false, 
+                    completed: false 
+                });
             };
 
             const deleteItem = async (id) => {
@@ -265,7 +343,9 @@
                             <div className="bg-green-500 text-white p-2 rounded-xl shadow-md"><Icon name="shopping-cart" size={20} /></div>
                             <h1 className="font-black text-xl tracking-tight text-gray-800">{groupId}</h1>
                         </div>
-                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-colors"><Icon name="settings" /></button>
+                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-colors">
+                            <Icon name="settings" />
+                        </button>
                     </header>
 
                     <main className="flex-1 overflow-y-auto px-4 py-4">
@@ -285,8 +365,19 @@
                     {activeTab === 'list' && (
                         <div className="p-4 bg-white border-t z-20 footer-padding">
                             <form onSubmit={addItem} className="flex gap-3 bg-gray-100 p-1.5 rounded-2xl shadow-inner">
-                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="追加..." className="flex-1 bg-transparent px-4 py-2 outline-none font-bold text-gray-700" />
-                                <button type="submit" disabled={!newItemName.trim()} className="bg-green-500 text-white w-12 h-12 flex items-center justify-center rounded-xl font-bold shadow-lg active:scale-90 disabled:opacity-30 transition-all"><Icon name="plus" size={24} /></button>
+                                <input 
+                                    value={newItemName} 
+                                    onChange={e => setNewItemName(e.target.value)} 
+                                    placeholder="何を買う？" 
+                                    className="flex-1 bg-transparent px-4 py-2 outline-none font-bold text-gray-700" 
+                                />
+                                <button 
+                                    type="submit" 
+                                    disabled={!newItemName.trim()} 
+                                    className="bg-green-500 text-white w-12 h-12 flex items-center justify-center rounded-xl font-bold shadow-lg active:scale-95 disabled:opacity-30 transition-all"
+                                >
+                                    <Icon name="plus" size={24} />
+                                </button>
                             </form>
                         </div>
                     )}
@@ -304,7 +395,15 @@
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center">
                             <div className="bg-white w-full max-w-md rounded-t-3xl p-8 shadow-2xl animate-in slide-in-from-bottom-full footer-padding">
                                 <h2 className="text-xl font-black mb-4">合言葉の設定</h2>
-                                <input defaultValue={groupId} onBlur={e => { setGroupId(e.target.value); localStorage.setItem('shopping_app_group_id', e.target.value); }} className="w-full bg-gray-50 border-2 rounded-2xl p-4 mb-6 font-bold" />
+                                <input 
+                                    defaultValue={groupId} 
+                                    onBlur={e => { 
+                                        const v = e.target.value.trim() || 'family';
+                                        setGroupId(v); 
+                                        localStorage.setItem('shopping_app_group_id', v); 
+                                    }} 
+                                    className="w-full bg-gray-50 border-2 rounded-2xl p-4 mb-6 font-bold" 
+                                />
                                 <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold shadow-lg">完了</button>
                             </div>
                         </div>

@@ -5,14 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>買い物メモ</title>
     
-    <!-- PWA Setting -->
-    <meta name="apple-mobile-web-app-title" content="買い物メモ">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <!-- PWA Settings -->
+    <meta name="theme-color" content="#22c55e">
     <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="買い物メモ">
     
-    <!-- アイコンURLは適宜書き換えてください -->
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png">
+    <link rel="manifest" href="data:application/manifest+json,{'name':'買い物メモ','short_name':'買い物','start_url':'/','display':'standalone','background_color':'#ffffff','theme_color':'#22c55e','icons':[{'src':'https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png','sizes':'192x192','type':'image/png'}]}">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -26,8 +26,7 @@
         import { getFirestore, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         // --- Firebase Configuration ---
-        // ★重要★: 現在お使いの設定値をここに貼り付けてください
-              const firebaseConfig = {
+        const firebaseConfig = {
   apiKey: "AIzaSyDIAGr2mjSyqrk22jIqrEsfcSP9CCmr5wM",
   authDomain: "awsome-ee102.firebaseapp.com",
   projectId: "awsome-ee102",
@@ -45,16 +44,44 @@
             const db = getFirestore(app);
             window.FB_SERVICES = { auth, db, appId, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, signInAnonymously, onAuthStateChanged };
         } catch (e) { console.error(e); }
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                const swCode = `self.addEventListener('fetch', (event) => { event.respondWith(fetch(event.request)); });`;
+                const blob = new Blob([swCode], { type: 'text/javascript' });
+                const swUrl = URL.createObjectURL(blob);
+                navigator.serviceWorker.register(swUrl).catch(err => console.log('SW registration failed:', err));
+            });
+        }
     </script>
 
     <style>
-        body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-        .pt-safe { padding-top: env(safe-area-inset-top, 20px); }
-        .pb-safe { padding-bottom: env(safe-area-inset-bottom, 16px); }
-        
-        /* Swipe Animation Styles */
+        :root {
+            --sat: env(safe-area-inset-top);
+            --sar: env(safe-area-inset-right);
+            --sab: env(safe-area-inset-bottom);
+            --sal: env(safe-area-inset-left);
+        }
+
+        body { 
+            -webkit-tap-highlight-color: transparent; 
+            overscroll-behavior-y: none; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f9fafb;
+        }
+
+        /* セーフエリアに対応したヘッダーのパディング */
+        .header-padding {
+            padding-top: calc(var(--sat) + 12px);
+        }
+
+        /* セーフエリアに対応したフッターのパディング */
+        .footer-padding {
+            padding-bottom: calc(var(--sab) + 8px);
+        }
+
         .swipe-container { position: relative; overflow: hidden; border-radius: 1rem; }
-        .swipe-content { position: relative; z-index: 10; transition: transform 0.2s ease-out; touch-action: pan-y; }
+        .swipe-content { position: relative; z-index: 10; transition: transform 0.2s ease-out; touch-action: pan-y; background: white; }
         .swipe-action-bg { position: absolute; right: 0; top: 0; bottom: 0; background: #fb923c; color: white; display: flex; align-items: center; justify-content: flex-end; padding-right: 1.5rem; width: 100%; border-radius: 1rem; }
     </style>
 </head>
@@ -62,7 +89,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useRef } = React;
+        const { useState, useEffect } = React;
 
         const Icon = ({ name, size = 24, className = "" }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
@@ -72,40 +99,28 @@
         const ShoppingItem = ({ item, onToggle, onArchive, onDelete, isActive }) => {
             const [startX, setStartX] = useState(0);
             const [currentX, setCurrentX] = useState(0);
-            const threshold = -80; // アーカイブ実行のしきい値
+            const threshold = -80;
 
-            const handleTouchStart = (e) => {
-                if (!isActive) return;
-                setStartX(e.touches[0].clientX);
-            };
-
-            const handleTouchMove = (e) => {
+            const handleTouchStart = (e) => { if (!isActive) return; setStartX(e.touches[0].clientX); };
+            const handleTouchMove = (e) => { 
                 if (!isActive) return;
                 const diff = e.touches[0].clientX - startX;
-                if (diff < 0) { // 左スワイプのみ
-                    setCurrentX(diff);
-                }
+                if (diff < 0) setCurrentX(diff);
             };
-
             const handleTouchEnd = () => {
-                if (currentX < threshold) {
-                    onArchive(item);
-                }
+                if (currentX < threshold) onArchive(item);
                 setCurrentX(0);
             };
 
             return (
                 <div className="swipe-container mb-3 shadow-sm border border-gray-100">
-                    {/* Background Action (Archive) */}
                     {isActive && (
                         <div className="swipe-action-bg" style={{ opacity: Math.min(Math.abs(currentX) / 50, 1) }}>
                             <Icon name="archive" size={24} />
                         </div>
                     )}
-                    
-                    {/* Item Content */}
                     <div 
-                        className="swipe-content bg-white p-4 flex items-center gap-4 cursor-pointer"
+                        className="swipe-content p-4 flex items-center gap-4 cursor-pointer"
                         style={{ transform: `translateX(${currentX}px)` }}
                         onTouchStart={handleTouchStart}
                         onTouchMove={handleTouchMove}
@@ -117,11 +132,7 @@
                                     {item.completed && <Icon name="check" size={16} />}
                                 </div>
                                 <span onClick={() => onToggle(item)} className={`text-lg flex-1 truncate ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700 font-medium'}`}>{item.name}</span>
-                                {item.completed && (
-                                    <div className="text-gray-300 flex items-center gap-1 text-[10px] italic">
-                                        <Icon name="chevrons-left" size={14} /> swipe
-                                    </div>
-                                )}
+                                {item.completed && <div className="text-gray-300 flex items-center gap-1 text-[10px]"><Icon name="chevrons-left" size={14} /> swipe</div>}
                             </>
                         ) : (
                             <>
@@ -144,9 +155,7 @@
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
             useEffect(() => {
-                const timer = setInterval(() => {
-                    if (window.FB_SERVICES) { setFb(window.FB_SERVICES); clearInterval(timer); }
-                }, 500);
+                const timer = setInterval(() => { if (window.FB_SERVICES) { setFb(window.FB_SERVICES); clearInterval(timer); } }, 500);
                 return () => clearInterval(timer);
             }, []);
 
@@ -160,9 +169,7 @@
                 if (!fb || !user) return;
                 const colName = `shopping-list-${groupId}`;
                 const q = fb.query(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', colName), fb.orderBy('createdAt', 'desc'));
-                return fb.onSnapshot(q, (ss) => {
-                    setItems(ss.docs.map(d => ({ id: d.id, ...d.data() })));
-                });
+                return fb.onSnapshot(q, (ss) => setItems(ss.docs.map(d => ({ id: d.id, ...d.data() }))));
             }, [fb, user, groupId]);
 
             const addItem = async (e) => {
@@ -176,15 +183,11 @@
             };
 
             const toggle = async (item) => {
-                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { 
-                    completed: !item.completed // 反転させるので外すことも可能
-                });
+                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { completed: !item.completed });
             };
 
             const archive = async (item) => {
-                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { 
-                    archived: true 
-                });
+                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { archived: true });
             };
 
             const deleteItem = async (id) => {
@@ -196,52 +199,52 @@
 
             return (
                 <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 overflow-hidden">
-                    <header className="bg-white px-6 py-4 pt-safe border-b flex justify-between items-center shrink-0 shadow-sm z-20">
-                        <div className="flex items-center gap-2">
+                    {/* Header with notch support */}
+                    <header className="bg-white px-6 header-padding border-b flex justify-between items-center shrink-0 z-20 shadow-sm">
+                        <div className="flex items-center gap-2 py-2">
                             <div className="bg-green-500 text-white p-2 rounded-xl"><Icon name="shopping-cart" size={20} /></div>
-                            <h1 className="font-bold text-lg">{groupId}</h1>
+                            <h1 className="font-bold text-lg text-gray-800">{groupId}</h1>
                         </div>
-                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400"><Icon name="settings" /></button>
+                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-colors"><Icon name="settings" /></button>
                     </header>
 
-                    <main className="flex-1 overflow-y-auto px-4 py-6">
+                    <main className="flex-1 overflow-y-auto px-4 py-4">
                         {items.filter(i => (activeTab === 'list' ? !i.archived : i.archived)).map(item => (
-                            <ShoppingItem 
-                                key={item.id} 
-                                item={item} 
-                                onToggle={toggle} 
-                                onArchive={archive} 
-                                onDelete={deleteItem}
-                                isActive={activeTab === 'list'}
-                            />
+                            <ShoppingItem key={item.id} item={item} onToggle={toggle} onArchive={archive} onDelete={deleteItem} isActive={activeTab === 'list'} />
                         ))}
+                        {items.filter(i => (activeTab === 'list' ? !i.archived : i.archived)).length === 0 && (
+                            <div className="text-center py-20 text-gray-300">
+                                <Icon name="clipboard-list" size={48} className="mx-auto mb-2 opacity-20" />
+                                <p>リストは空です</p>
+                            </div>
+                        )}
                     </main>
 
                     {activeTab === 'list' && (
-                        <div className="p-4 pb-safe bg-white border-t z-20">
+                        <div className="p-4 bg-white border-t z-20 footer-padding">
                             <form onSubmit={addItem} className="flex gap-2">
-                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="追加..." className="flex-1 bg-gray-100 rounded-2xl px-5 py-3 outline-none font-bold" />
-                                <button type="submit" className="bg-green-500 text-white px-6 rounded-2xl font-bold shadow-lg shadow-green-100 text-xl">+</button>
+                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="何を買う？" className="flex-1 bg-gray-100 rounded-2xl px-5 py-3 outline-none font-bold text-gray-700" />
+                                <button type="submit" className="bg-green-500 text-white px-6 rounded-2xl font-bold shadow-lg active:scale-95 transition-transform">+</button>
                             </form>
                         </div>
                     )}
 
-                    <nav className="bg-white border-t flex justify-around items-center h-20 pb-safe shrink-0 z-20">
-                        <button onClick={() => setActiveTab('list')} className={`flex flex-col items-center gap-1 ${activeTab === 'list' ? 'text-green-600' : 'text-gray-400'}`}>
+                    <nav className="bg-white border-t flex justify-around items-center h-16 footer-padding shrink-0 z-20">
+                        <button onClick={() => setActiveTab('list')} className={`flex flex-col items-center gap-1 flex-1 py-2 ${activeTab === 'list' ? 'text-green-600' : 'text-gray-400'}`}>
                             <Icon name="list" /><span className="text-[10px] font-bold">リスト</span>
                         </button>
-                        <button onClick={() => setActiveTab('archive')} className={`flex flex-col items-center gap-1 ${activeTab === 'archive' ? 'text-green-600' : 'text-gray-400'}`}>
+                        <button onClick={() => setActiveTab('archive')} className={`flex flex-col items-center gap-1 flex-1 py-2 ${activeTab === 'archive' ? 'text-green-600' : 'text-gray-400'}`}>
                             <Icon name="history" /><span className="text-[10px] font-bold">履歴</span>
                         </button>
                     </nav>
 
                     {isSettingsOpen && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center">
-                            <div className="bg-white w-full max-w-md rounded-t-3xl p-8 shadow-2xl animate-in slide-in-from-bottom-full">
+                            <div className="bg-white w-full max-w-md rounded-t-3xl p-8 shadow-2xl animate-in slide-in-from-bottom-full footer-padding">
                                 <h2 className="text-xl font-bold mb-4">設定</h2>
-                                <label className="text-xs font-bold text-gray-400 uppercase block mb-2">共有ID（合言葉）</label>
+                                <label className="text-xs font-bold text-gray-400 uppercase block mb-2">共有ID（家族で合わせる）</label>
                                 <input defaultValue={groupId} onBlur={e => { setGroupId(e.target.value); localStorage.setItem('shopping_app_group_id', e.target.value); }} className="w-full bg-gray-50 border-2 rounded-2xl p-4 mb-6 font-bold" />
-                                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold">完了</button>
+                                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold active:scale-[0.98] transition-transform">完了</button>
                             </div>
                         </div>
                     )}

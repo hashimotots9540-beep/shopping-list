@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>買い物メモ</title>
     
-    <!-- PWA & Mobile Optimization -->
+    <!-- PWA -->
     <meta name="apple-mobile-web-app-title" content="買い物メモ">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,7 +13,6 @@
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -21,26 +20,31 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-        import { getFirestore, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFirestore, collection, query, onSnapshot, orderBy, addDoc, updateDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-        // --- 抜き出したFirebase設定 ---
+        // --- Firebase Configuration ---
+        // 注意: Vercelで動かすには、以下の値を「実際のキー」に書き換える必要があります。
+        // 万が一、以下の apiKey で動かない場合は、Geminiのプレビュー画面で 
+        // 「console.log(__firebase_config)」を実行して取得した値をここに入れてください。
         const firebaseConfig = {
-  apiKey: "",
-  authDomain: "shopping-app-v1.firebaseapp.com",
-  projectId: "shopping-app-v1",
-  storageBucket: "shopping-app-v1.appspot.com",
-  messagingSenderId: "7748593021",
-  appId: "1:7748593021:web:a1b2c3d4e5f6g7h8i9j0"
-};
+            apiKey: window.__firebase_config ? JSON.parse(window.__firebase_config).apiKey : "", 
+            authDomain: "shopping-app-v1.firebaseapp.com",
+            projectId: "shopping-app-v1",
+            storageBucket: "shopping-app-v1.appspot.com",
+            messagingSenderId: "7748593021",
+            appId: "1:7748593021:web:a1b2c3d4e5f6g7h8i9j0"
+        };
 
-        // App ID
         const appId = "shopping-app-v1";
 
-        // 初期化処理
-        const initFirebase = () => {
-            // apiKeyが空の場合は、環境変数（__firebase_config）からの取得を試みる
+        // Vercel環境で __firebase_config がない場合でも、
+        // もし以前のチャット等で apiKey を取得済みであれば、ここに直接文字列として貼り付けてください。
+        // 例: apiKey: "AIzaSy..."
+        
+        const init = () => {
             let config = firebaseConfig;
-            if (!config.apiKey && typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
+            // Gemini環境下での自動取得試行
+            if (!config.apiKey && typeof window.__firebase_config !== 'undefined') {
                 config = typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
             }
 
@@ -48,17 +52,18 @@
                 const app = initializeApp(config);
                 const auth = getAuth(app);
                 const db = getFirestore(app);
-                window.FB_SERVICES = { auth, db, appId, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp };
-                return true;
+                window.FB_SERVICES = { auth, db, appId, collection, query, onSnapshot, orderBy, addDoc, updateDoc, doc, serverTimestamp, signInAnonymously, onAuthStateChanged };
+            } else {
+                // apiKeyがどうしても見つからない場合のフォールバック（デバッグ用）
+                console.error("Firebase API Key is missing. Please paste your apiKey into the firebaseConfig object.");
             }
-            return false;
         };
 
-        initFirebase();
+        init();
     </script>
 
     <style>
-        body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
         .pt-safe { padding-top: env(safe-area-inset-top, 20px); }
         .pb-safe { padding-bottom: env(safe-area-inset-bottom, 16px); }
     </style>
@@ -72,51 +77,41 @@
         const App = () => {
             const [fb, setFb] = useState(null);
             const [user, setUser] = useState(null);
-            const [items, setItems] = useState(() => JSON.parse(localStorage.getItem('shopping_items_cache') || '[]'));
+            const [items, setItems] = useState([]);
             const [newItemName, setNewItemName] = useState('');
             const [groupId, setGroupId] = useState(() => localStorage.getItem('shopping_app_group_id') || 'family');
             const [activeTab, setActiveTab] = useState('list');
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
             useEffect(() => {
-                const timer = setInterval(() => {
+                const check = setInterval(() => {
                     if (window.FB_SERVICES) {
                         setFb(window.FB_SERVICES);
-                        clearInterval(timer);
+                        clearInterval(check);
                     }
-                }, 100);
-                return () => clearInterval(timer);
+                }, 200);
+                return () => clearInterval(check);
             }, []);
 
             useEffect(() => {
                 if (!fb) return;
-                const { auth } = fb;
-                const { signInAnonymously } = fb; // moduleからインポート済み
-                
-                // 認証
-                const doAuth = async () => {
-                    try {
-                        // SDKから直接インポートした関数を使用
-                        const { getAuth, signInAnonymously } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js");
-                        await signInAnonymously(fb.auth);
-                    } catch (e) { console.error("Auth error", e); }
-                };
-                doAuth();
-                
-                const unsub = fb.auth.onAuthStateChanged(u => setUser(u));
-                return unsub;
+                fb.signInAnonymously(fb.auth).catch(err => {
+                    console.error("Auth failed:", err);
+                });
+                return fb.onAuthStateChanged(fb.auth, (u) => setUser(u));
             }, [fb]);
 
             useEffect(() => {
                 if (!fb || !user) return;
+                // 注意: データベースのパスはGeminiの仕様に合わせています
                 const q = fb.query(
                     fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', `list-${groupId}`),
                     fb.orderBy('createdAt', 'desc')
                 );
-                return fb.onSnapshot(q, (snapshot) => {
-                    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    setItems(data);
-                    localStorage.setItem('shopping_items_cache', JSON.stringify(data));
+                return fb.onSnapshot(q, (ss) => {
+                    setItems(ss.docs.map(d => ({ id: d.id, ...d.data() })));
+                }, (err) => {
+                    console.error("Firestore Listen error:", err);
                 });
             }, [fb, user, groupId]);
 
@@ -142,22 +137,18 @@
                 });
             };
 
-            if (!fb) {
-                return (
-                    <div className="flex flex-col items-center justify-center h-screen bg-white">
-                        <div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-                        <p className="text-gray-400 font-bold tracking-widest">CONNECTING...</p>
-                    </div>
-                );
-            }
+            if (!fb) return (
+                <div className="flex flex-col items-center justify-center h-screen space-y-4">
+                    <div className="w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
+                    <p className="font-bold text-gray-400">Firebase接続中...</p>
+                    <p className="text-xs text-red-400 px-10 text-center">もし10秒以上進まない場合は、apiKeyが正しく設定されているか確認してください。</p>
+                </div>
+            );
 
             return (
                 <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 relative overflow-hidden">
-                    <header className="bg-white/80 backdrop-blur-md px-6 py-4 pt-safe border-b flex justify-between items-center sticky top-0 z-20">
-                        <div className="flex items-center gap-2">
-                            <div className="bg-green-500 text-white p-1 rounded-lg"><i data-lucide="shopping-cart" className="w-5 h-5"></i></div>
-                            <h1 className="font-bold text-lg text-gray-800">{groupId === 'family' ? '買い物メモ' : groupId}</h1>
-                        </div>
+                    <header className="bg-white px-6 py-4 pt-safe border-b flex justify-between items-center shrink-0">
+                        <h1 className="font-bold text-lg">🛒 {groupId === 'family' ? '買い物メモ' : groupId}</h1>
                         <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400"><i data-lucide="settings"></i></button>
                     </header>
 
@@ -183,10 +174,10 @@
                     </main>
 
                     {activeTab === 'list' && (
-                        <div className="p-4 pb-safe bg-white/80 backdrop-blur-md border-t">
+                        <div className="p-4 pb-safe bg-white border-t">
                             <form onSubmit={addItem} className="flex gap-2">
-                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="何を買う？" className="flex-1 bg-gray-100 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-green-400 font-bold" />
-                                <button type="submit" className="bg-green-500 text-white px-6 py-3 rounded-xl font-bold shadow-lg active:scale-90 transition-transform">+</button>
+                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="何を買う？" className="flex-1 bg-gray-100 rounded-xl px-4 py-3 outline-none font-bold" />
+                                <button type="submit" className="bg-green-500 text-white px-6 py-3 rounded-xl font-bold shadow-lg">+</button>
                             </form>
                         </div>
                     )}
@@ -201,16 +192,15 @@
                     </nav>
 
                     {isSettingsOpen && (
-                        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-                            <div className="bg-white w-full rounded-3xl p-8 shadow-2xl">
-                                <h2 className="text-xl font-bold mb-2">共有設定</h2>
-                                <p className="text-xs text-gray-400 mb-6">家族と同じ「合言葉」を入れると同期します。</p>
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-6">
+                            <div className="bg-white w-full rounded-3xl p-8">
+                                <h2 className="text-xl font-bold mb-4">共有設定</h2>
                                 <input defaultValue={groupId} onBlur={e => { 
                                     const val = e.target.value.trim() || 'family';
                                     setGroupId(val); 
                                     localStorage.setItem('shopping_app_group_id', val); 
-                                }} className="w-full bg-gray-50 border-2 rounded-2xl p-4 mb-6 font-bold outline-none focus:border-green-500" />
-                                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold shadow-lg">設定を保存</button>
+                                }} className="w-full bg-gray-50 border-2 rounded-2xl p-4 mb-6 font-bold" />
+                                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold">完了</button>
                             </div>
                         </div>
                     )}
@@ -224,4 +214,3 @@
     </script>
 </body>
 </html>
-

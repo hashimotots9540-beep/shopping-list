@@ -13,7 +13,7 @@
     
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png">
     
-    <!-- Web App Manifest (Chrome Install Requirement) -->
+    <!-- Web App Manifest -->
     <link rel="manifest" id="pwa-manifest">
     <script>
         const manifest = {
@@ -37,7 +37,10 @@
                 }
             ]
         };
-        document.getElementById('pwa-manifest').setAttribute('href', 'data:application/json;base64,' + btoa(JSON.stringify(manifest)));
+        const stringManifest = JSON.stringify(manifest);
+        const blob = new Blob([stringManifest], {type: 'application/json'});
+        const manifestURL = URL.createObjectURL(blob);
+        document.querySelector('#pwa-manifest').setAttribute('href', manifestURL);
     </script>
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -48,11 +51,15 @@
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
         import { getFirestore, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-        // --- Firebase Configuration ---
- const firebaseConfig = {
+        /**
+         * 【重要】Firebaseの設定情報はここに記述します
+         * 自分でアプリを公開する場合は、Firebase Consoleからコピーした
+         * configオブジェクトを以下に貼り付けてください。
+         */
+         const firebaseConfig = {
   apiKey: "AIzaSyDIAGr2mjSyqrk22jIqrEsfcSP9CCmr5wM",
   authDomain: "awsome-ee102.firebaseapp.com",
   projectId: "awsome-ee102",
@@ -61,17 +68,20 @@
   appId: "1:113529271126:web:c2dc9667a0fba90712dcf7",
   measurementId: "G-TR7LXHTE8Z"
 };
-
-        const appId = "shopping-app-v1";
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-shopping-app';
 
         try {
             const app = initializeApp(firebaseConfig);
             const auth = getAuth(app);
             const db = getFirestore(app);
-            window.FB_SERVICES = { auth, db, appId, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, signInAnonymously, onAuthStateChanged };
-        } catch (e) { console.error(e); }
+            window.FB_SERVICES = { 
+                auth, db, appId, collection, query, onSnapshot, orderBy, 
+                addDoc, updateDoc, deleteDoc, doc, serverTimestamp, 
+                signInAnonymously, onAuthStateChanged, signInWithCustomToken 
+            };
+        } catch (e) { console.error("Firebase Init Error:", e); }
 
-        // Service Worker registration (Android Chrome Requirement)
+        // Service Worker registration (Android Chrome Install Support)
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 const swCode = `
@@ -81,17 +91,9 @@
                 `;
                 const blob = new Blob([swCode], { type: 'text/javascript' });
                 const swUrl = URL.createObjectURL(blob);
-                navigator.serviceWorker.register(swUrl)
-                    .then(reg => console.log('SW registered'))
-                    .catch(err => console.log('SW failed', err));
+                navigator.serviceWorker.register(swUrl).catch(err => console.log('SW failed', err));
             });
         }
-
-        // Install Prompt Listener
-        window.addEventListener('beforeinstallprompt', (e) => {
-            console.log('App is ready to be installed');
-            window.deferredPrompt = e;
-        });
     </script>
 
     <style>
@@ -99,30 +101,36 @@
             --sat: env(safe-area-inset-top);
             --sab: env(safe-area-inset-bottom);
         }
+        * { touch-action: manipulation; } /* 白画面・ズーム防止 */
         body { 
             -webkit-tap-highlight-color: transparent; 
             overscroll-behavior-y: none; 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f9fafb;
+            user-select: none;
         }
+        input { user-select: text; }
         .header-padding { padding-top: calc(var(--sat) + 12px); }
         .footer-padding { padding-bottom: calc(var(--sab) + 8px); }
-        .swipe-container { position: relative; overflow: hidden; border-radius: 1rem; }
+        .swipe-container { position: relative; overflow: hidden; border-radius: 1.25rem; }
         .swipe-content { position: relative; z-index: 10; transition: transform 0.2s ease-out; touch-action: pan-y; background: white; }
-        .swipe-action-bg { position: absolute; right: 0; top: 0; bottom: 0; background: #fb923c; color: white; display: flex; align-items: center; justify-content: flex-end; padding-right: 1.5rem; width: 100%; border-radius: 1rem; }
+        .swipe-action-bg { position: absolute; right: 0; top: 0; bottom: 0; background: #fb923c; color: white; display: flex; align-items: center; justify-content: flex-end; padding-right: 1.5rem; width: 100%; border-radius: 1.25rem; }
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 <body class="bg-gray-50">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
 
         const Icon = ({ name, size = 24, className = "" }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
             return <i data-lucide={name} className={className} style={{ width: size, height: size }}></i>;
         };
 
-        const ShoppingItem = ({ item, onToggle, onArchive, onDelete, isActive }) => {
+        const ShoppingItem = ({ item, onToggle, onArchive, onRestore, onDelete, isActive }) => {
             const [startX, setStartX] = useState(0);
             const [currentX, setCurrentX] = useState(0);
             const threshold = -80;
@@ -131,7 +139,7 @@
             const handleTouchMove = (e) => { 
                 if (!isActive) return;
                 const diff = e.touches[0].clientX - startX;
-                if (diff < 0) setCurrentX(diff);
+                if (diff < 0) setCurrentX(Math.max(diff, -120));
             };
             const handleTouchEnd = () => {
                 if (currentX < threshold) onArchive(item);
@@ -139,14 +147,17 @@
             };
 
             return (
-                <div className="swipe-container mb-3 shadow-sm border border-gray-100">
+                <div className="swipe-container mb-3 shadow-sm border border-gray-100 fade-in">
                     {isActive && (
                         <div className="swipe-action-bg" style={{ opacity: Math.min(Math.abs(currentX) / 50, 1) }}>
-                            <Icon name="archive" size={24} />
+                            <div className="flex flex-col items-center">
+                                <Icon name="archive" size={20} />
+                                <span className="text-[10px] font-bold">完了</span>
+                            </div>
                         </div>
                     )}
                     <div 
-                        className="swipe-content p-4 flex items-center gap-4 cursor-pointer"
+                        className="swipe-content p-4 flex items-center gap-4 cursor-pointer active:bg-gray-50"
                         style={{ transform: `translateX(${currentX}px)` }}
                         onTouchStart={handleTouchStart}
                         onTouchMove={handleTouchMove}
@@ -154,16 +165,19 @@
                     >
                         {isActive ? (
                             <>
-                                <div onClick={(e) => { e.stopPropagation(); onToggle(item); }} className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}>
-                                    {item.completed && <Icon name="check" size={16} />}
+                                <div onClick={(e) => { e.stopPropagation(); onToggle(item); }} className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${item.completed ? 'bg-green-500 border-green-500 text-white shadow-inner' : 'border-gray-200'}`}>
+                                    {item.completed && <Icon name="check" size={18} />}
                                 </div>
-                                <span onClick={() => onToggle(item)} className={`text-lg flex-1 truncate ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700 font-medium'}`}>{item.name}</span>
-                                {item.completed && <div className="text-gray-300 flex items-center gap-1 text-[10px]"><Icon name="chevrons-left" size={14} /> swipe</div>}
+                                <span onClick={() => onToggle(item)} className={`text-lg flex-1 truncate font-medium ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700'}`}>{item.name}</span>
+                                {item.completed && <div className="text-gray-200 flex items-center gap-1 text-[10px]"><Icon name="chevrons-left" size={14} /> swipe</div>}
                             </>
                         ) : (
                             <>
-                                <span className="text-gray-400 line-through flex-1">{item.name}</span>
-                                <button onClick={() => onDelete(item.id)} className="text-red-400 p-2"><Icon name="trash-2" size={20} /></button>
+                                <span className="text-gray-400 line-through flex-1 truncate">{item.name}</span>
+                                <div className="flex gap-2 shrink-0">
+                                    <button onClick={() => onRestore(item)} className="p-3 text-green-600 bg-green-50 rounded-full active:scale-90 transition-transform"><Icon name="rotate-ccw" size={18} /></button>
+                                    <button onClick={() => onDelete(item.id)} className="p-3 text-red-400 bg-red-50 rounded-full active:scale-90 transition-transform"><Icon name="trash-2" size={18} /></button>
+                                </div>
                             </>
                         )}
                     </div>
@@ -179,6 +193,7 @@
             const [groupId, setGroupId] = useState(() => localStorage.getItem('shopping_app_group_id') || 'family');
             const [activeTab, setActiveTab] = useState('list');
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+            const [loading, setLoading] = useState(true);
 
             useEffect(() => {
                 const timer = setInterval(() => { if (window.FB_SERVICES) { setFb(window.FB_SERVICES); clearInterval(timer); } }, 500);
@@ -187,7 +202,14 @@
 
             useEffect(() => {
                 if (!fb) return;
-                fb.signInAnonymously(fb.auth).catch(console.error);
+                const initAuth = async () => {
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await fb.signInWithCustomToken(fb.auth, __initial_auth_token);
+                    } else {
+                        await fb.signInAnonymously(fb.auth);
+                    }
+                };
+                initAuth().catch(console.error);
                 return fb.onAuthStateChanged(fb.auth, setUser);
             }, [fb]);
 
@@ -195,11 +217,18 @@
                 if (!fb || !user) return;
                 const colName = `shopping-list-${groupId}`;
                 const q = fb.query(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', colName), fb.orderBy('createdAt', 'desc'));
-                return fb.onSnapshot(q, (ss) => setItems(ss.docs.map(d => ({ id: d.id, ...d.data() }))));
+                const unsubscribe = fb.onSnapshot(q, (ss) => {
+                    setItems(ss.docs.map(d => ({ id: d.id, ...d.data() })));
+                    setLoading(false);
+                }, (err) => {
+                    console.error("Firestore Error:", err);
+                    setLoading(false);
+                });
+                return unsubscribe;
             }, [fb, user, groupId]);
 
             const addItem = async (e) => {
-                e.preventDefault();
+                if (e) e.preventDefault();
                 const name = newItemName.trim();
                 if (!name || !fb || !user) return;
                 setNewItemName('');
@@ -216,54 +245,67 @@
                 await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { archived: true });
             };
 
+            const restore = async (item) => {
+                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { archived: false, completed: false });
+            };
+
             const deleteItem = async (id) => {
                 if (!confirm("完全に削除しますか？")) return;
                 await fb.deleteDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, id));
             };
 
-            if (!fb) return <div className="flex h-screen items-center justify-center font-mono text-gray-400">Loading...</div>;
+            if (!fb) return <div className="flex h-screen items-center justify-center font-mono text-gray-300">起動中...</div>;
+
+            const displayItems = items.filter(i => (activeTab === 'list' ? !i.archived : i.archived));
 
             return (
                 <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 overflow-hidden">
                     <header className="bg-white px-6 header-padding border-b flex justify-between items-center shrink-0 z-20 shadow-sm">
-                        <div className="flex items-center gap-2 py-2">
-                            <div className="bg-green-500 text-white p-2 rounded-xl"><Icon name="shopping-cart" size={20} /></div>
-                            <h1 className="font-bold text-lg text-gray-800">{groupId}</h1>
+                        <div className="flex items-center gap-3 py-2">
+                            <div className="bg-green-500 text-white p-2 rounded-xl shadow-md"><Icon name="shopping-cart" size={20} /></div>
+                            <h1 className="font-black text-xl tracking-tight text-gray-800">{groupId}</h1>
                         </div>
                         <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-colors"><Icon name="settings" /></button>
                     </header>
 
                     <main className="flex-1 overflow-y-auto px-4 py-4">
-                        {items.filter(i => (activeTab === 'list' ? !i.archived : i.archived)).map(item => (
-                            <ShoppingItem key={item.id} item={item} onToggle={toggle} onArchive={archive} onDelete={deleteItem} isActive={activeTab === 'list'} />
+                        {displayItems.map(item => (
+                            <ShoppingItem 
+                                key={item.id} 
+                                item={item} 
+                                onToggle={toggle} 
+                                onArchive={archive} 
+                                onRestore={restore}
+                                onDelete={deleteItem} 
+                                isActive={activeTab === 'list'} 
+                            />
                         ))}
                     </main>
 
                     {activeTab === 'list' && (
                         <div className="p-4 bg-white border-t z-20 footer-padding">
-                            <form onSubmit={addItem} className="flex gap-2">
-                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="何を買う？" className="flex-1 bg-gray-100 rounded-2xl px-5 py-3 outline-none font-bold text-gray-700" />
-                                <button type="submit" className="bg-green-500 text-white px-6 rounded-2xl font-bold shadow-lg active:scale-95 transition-transform">+</button>
+                            <form onSubmit={addItem} className="flex gap-3 bg-gray-100 p-1.5 rounded-2xl shadow-inner">
+                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="追加..." className="flex-1 bg-transparent px-4 py-2 outline-none font-bold text-gray-700" />
+                                <button type="submit" disabled={!newItemName.trim()} className="bg-green-500 text-white w-12 h-12 flex items-center justify-center rounded-xl font-bold shadow-lg active:scale-90 disabled:opacity-30 transition-all"><Icon name="plus" size={24} /></button>
                             </form>
                         </div>
                     )}
 
                     <nav className="bg-white border-t flex justify-around items-center h-16 footer-padding shrink-0 z-20">
                         <button onClick={() => setActiveTab('list')} className={`flex flex-col items-center gap-1 flex-1 py-2 ${activeTab === 'list' ? 'text-green-600' : 'text-gray-400'}`}>
-                            <Icon name="list" /><span className="text-[10px] font-bold">リスト</span>
+                            <Icon name="list" size={24} /><span className="text-[10px] font-black">リスト</span>
                         </button>
                         <button onClick={() => setActiveTab('archive')} className={`flex flex-col items-center gap-1 flex-1 py-2 ${activeTab === 'archive' ? 'text-green-600' : 'text-gray-400'}`}>
-                            <Icon name="history" /><span className="text-[10px] font-bold">履歴</span>
+                            <Icon name="history" size={24} /><span className="text-[10px] font-black">履歴</span>
                         </button>
                     </nav>
 
                     {isSettingsOpen && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center">
                             <div className="bg-white w-full max-w-md rounded-t-3xl p-8 shadow-2xl animate-in slide-in-from-bottom-full footer-padding">
-                                <h2 className="text-xl font-bold mb-4">設定</h2>
-                                <label className="text-xs font-bold text-gray-400 uppercase block mb-2">共有ID</label>
+                                <h2 className="text-xl font-black mb-4">合言葉の設定</h2>
                                 <input defaultValue={groupId} onBlur={e => { setGroupId(e.target.value); localStorage.setItem('shopping_app_group_id', e.target.value); }} className="w-full bg-gray-50 border-2 rounded-2xl p-4 mb-6 font-bold" />
-                                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold active:scale-[0.98] transition-transform">完了</button>
+                                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold shadow-lg">完了</button>
                             </div>
                         </div>
                     )}

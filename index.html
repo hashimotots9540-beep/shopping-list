@@ -12,7 +12,33 @@
     <meta name="apple-mobile-web-app-title" content="買い物メモ">
     
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png">
-    <link rel="manifest" href="data:application/manifest+json,{'name':'買い物メモ','short_name':'買い物','start_url':'/','display':'standalone','background_color':'#ffffff','theme_color':'#22c55e','icons':[{'src':'https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png','sizes':'192x192','type':'image/png'}]}">
+    
+    <!-- Web App Manifest (Chrome Install Requirement) -->
+    <link rel="manifest" id="pwa-manifest">
+    <script>
+        const manifest = {
+            "name": "買い物メモ",
+            "short_name": "買い物",
+            "start_url": "./",
+            "display": "standalone",
+            "background_color": "#ffffff",
+            "theme_color": "#22c55e",
+            "icons": [
+                {
+                    "src": "https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png",
+                    "sizes": "192x192",
+                    "type": "image/png",
+                    "purpose": "any maskable"
+                },
+                {
+                    "src": "https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png",
+                    "sizes": "512x512",
+                    "type": "image/png"
+                }
+            ]
+        };
+        document.getElementById('pwa-manifest').setAttribute('href', 'data:application/json;base64,' + btoa(JSON.stringify(manifest)));
+    </script>
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -26,7 +52,7 @@
         import { getFirestore, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         // --- Firebase Configuration ---
-        const firebaseConfig = {
+ const firebaseConfig = {
   apiKey: "AIzaSyDIAGr2mjSyqrk22jIqrEsfcSP9CCmr5wM",
   authDomain: "awsome-ee102.firebaseapp.com",
   projectId: "awsome-ee102",
@@ -45,41 +71,41 @@
             window.FB_SERVICES = { auth, db, appId, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, signInAnonymously, onAuthStateChanged };
         } catch (e) { console.error(e); }
 
+        // Service Worker registration (Android Chrome Requirement)
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                const swCode = `self.addEventListener('fetch', (event) => { event.respondWith(fetch(event.request)); });`;
+                const swCode = `
+                    self.addEventListener('install', (e) => self.skipWaiting());
+                    self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));
+                    self.addEventListener('fetch', (e) => e.respondWith(fetch(e.request)));
+                `;
                 const blob = new Blob([swCode], { type: 'text/javascript' });
                 const swUrl = URL.createObjectURL(blob);
-                navigator.serviceWorker.register(swUrl).catch(err => console.log('SW registration failed:', err));
+                navigator.serviceWorker.register(swUrl)
+                    .then(reg => console.log('SW registered'))
+                    .catch(err => console.log('SW failed', err));
             });
         }
+
+        // Install Prompt Listener
+        window.addEventListener('beforeinstallprompt', (e) => {
+            console.log('App is ready to be installed');
+            window.deferredPrompt = e;
+        });
     </script>
 
     <style>
         :root {
             --sat: env(safe-area-inset-top);
-            --sar: env(safe-area-inset-right);
             --sab: env(safe-area-inset-bottom);
-            --sal: env(safe-area-inset-left);
         }
-
         body { 
             -webkit-tap-highlight-color: transparent; 
             overscroll-behavior-y: none; 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: #f9fafb;
         }
-
-        /* セーフエリアに対応したヘッダーのパディング */
-        .header-padding {
-            padding-top: calc(var(--sat) + 12px);
-        }
-
-        /* セーフエリアに対応したフッターのパディング */
-        .footer-padding {
-            padding-bottom: calc(var(--sab) + 8px);
-        }
-
+        .header-padding { padding-top: calc(var(--sat) + 12px); }
+        .footer-padding { padding-bottom: calc(var(--sab) + 8px); }
         .swipe-container { position: relative; overflow: hidden; border-radius: 1rem; }
         .swipe-content { position: relative; z-index: 10; transition: transform 0.2s ease-out; touch-action: pan-y; background: white; }
         .swipe-action-bg { position: absolute; right: 0; top: 0; bottom: 0; background: #fb923c; color: white; display: flex; align-items: center; justify-content: flex-end; padding-right: 1.5rem; width: 100%; border-radius: 1rem; }
@@ -199,7 +225,6 @@
 
             return (
                 <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 overflow-hidden">
-                    {/* Header with notch support */}
                     <header className="bg-white px-6 header-padding border-b flex justify-between items-center shrink-0 z-20 shadow-sm">
                         <div className="flex items-center gap-2 py-2">
                             <div className="bg-green-500 text-white p-2 rounded-xl"><Icon name="shopping-cart" size={20} /></div>
@@ -212,12 +237,6 @@
                         {items.filter(i => (activeTab === 'list' ? !i.archived : i.archived)).map(item => (
                             <ShoppingItem key={item.id} item={item} onToggle={toggle} onArchive={archive} onDelete={deleteItem} isActive={activeTab === 'list'} />
                         ))}
-                        {items.filter(i => (activeTab === 'list' ? !i.archived : i.archived)).length === 0 && (
-                            <div className="text-center py-20 text-gray-300">
-                                <Icon name="clipboard-list" size={48} className="mx-auto mb-2 opacity-20" />
-                                <p>リストは空です</p>
-                            </div>
-                        )}
                     </main>
 
                     {activeTab === 'list' && (
@@ -242,7 +261,7 @@
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center">
                             <div className="bg-white w-full max-w-md rounded-t-3xl p-8 shadow-2xl animate-in slide-in-from-bottom-full footer-padding">
                                 <h2 className="text-xl font-bold mb-4">設定</h2>
-                                <label className="text-xs font-bold text-gray-400 uppercase block mb-2">共有ID（家族で合わせる）</label>
+                                <label className="text-xs font-bold text-gray-400 uppercase block mb-2">共有ID</label>
                                 <input defaultValue={groupId} onBlur={e => { setGroupId(e.target.value); localStorage.setItem('shopping_app_group_id', e.target.value); }} className="w-full bg-gray-50 border-2 rounded-2xl p-4 mb-6 font-bold" />
                                 <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold active:scale-[0.98] transition-transform">完了</button>
                             </div>

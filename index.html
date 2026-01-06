@@ -5,147 +5,242 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>買い物メモ</title>
     
-    <!-- PWA Settings -->
+    <!-- PWA & Mobile Optimization -->
     <meta name="apple-mobile-web-app-title" content="買い物メモ">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="mobile-web-app-capable" content="yes">
     
+    <!-- Fonts & Icons -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <!-- React & Firebase SDKs -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { getFirestore, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // JSONパースのエラーを回避するための安全な取得処理
+        const getFirebaseConfig = () => {
+            try {
+                // window.__firebase_config が存在し、かつプレースホルダー文字列でない場合のみパース
+                if (typeof window.__firebase_config !== 'undefined' && window.__firebase_config) {
+                    return typeof window.__firebase_config === 'string' ? JSON.parse(window.__firebase_config) : window.__firebase_config;
+                }
+            } catch (e) {
+                console.error("Firebase config parse error:", e);
+            }
+            return null;
+        };
+
+        const firebaseConfig = getFirebaseConfig();
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        if (firebaseConfig && firebaseConfig.apiKey) {
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
+            const db = getFirestore(app);
+            window.FB_SERVICES = { auth, db, appId, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp };
+        } else {
+            console.warn("Firebase config is missing or invalid. App will wait for config.");
+        }
+    </script>
 
     <style>
-        body { background-color: #f9fafb; font-family: -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
-        .safe-top { padding-top: env(safe-area-inset-top, 20px); }
-        .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 20px); }
+        body { -webkit-tap-highlight-color: transparent; overscroll-behavior-y: none; }
+        .pt-safe { padding-top: env(safe-area-inset-top, 20px); }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom, 16px); }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-item { animation: fadeIn 0.3s ease-out forwards; }
     </style>
 </head>
-<body>
+<body class="bg-gray-50 antialiased">
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
-
-        // --- 重要：Firebase設定 ---
-        // ここに直接設定を書き込みます（Gemini環境から自動取得を試みますが、失敗時のフォールバックを強化）
-        const configStr = window.__firebase_config || localStorage.getItem('fb_config_backup');
-        const firebaseConfig = configStr ? JSON.parse(configStr) : null;
-        const appId = window.__app_id || localStorage.getItem('fb_app_id_backup') || 'shopping-app-v1';
-
-        // 設定を保存しておく（次回起動時のため）
-        if (window.__firebase_config) localStorage.setItem('fb_config_backup', window.__firebase_config);
-        if (window.__app_id) localStorage.setItem('fb_app_id_backup', window.__app_id);
-
-        if (firebaseConfig && !firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-        }
+        const { useState, useEffect, useRef } = React;
 
         const App = () => {
-            const [items, setItems] = useState([]);
-            const [inputValue, setInputValue] = useState('');
-            const [groupId, setGroupId] = useState(() => localStorage.getItem('shop_group') || '家族');
+            const [fb, setFb] = useState(null);
+            const [user, setUser] = useState(null);
+            const [items, setItems] = useState(() => JSON.parse(localStorage.getItem('shopping_items_cache') || '[]'));
+            const [newItemName, setNewItemName] = useState('');
+            const [groupId, setGroupId] = useState(() => localStorage.getItem('shopping_app_group_id') || 'family');
+            const [activeTab, setActiveTab] = useState('list');
             const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-            const [tab, setTab] = useState('list');
 
             useEffect(() => {
-                if (!firebaseConfig) {
-                    console.error("Firebase config is missing.");
-                    return;
-                }
+                const checkFB = setInterval(() => {
+                    if (window.FB_SERVICES) {
+                        setFb(window.FB_SERVICES);
+                        clearInterval(checkFB);
+                    }
+                }, 500);
+                return () => clearInterval(checkFB);
+            }, []);
 
-                firebase.auth().signInAnonymously().then(() => {
-                    const db = firebase.firestore();
-                    const path = `artifacts/${appId}/public/data/items-${groupId}`;
-                    
-                    return db.collection(path).orderBy('createdAt', 'desc').onSnapshot(ss => {
-                        setItems(ss.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                    });
-                }).catch(err => console.error("Auth error:", err));
-            }, [groupId]);
+            useEffect(() => {
+                if (!fb) return;
+                signInAnonymously(fb.auth).catch(console.error);
+                return onAuthStateChanged(fb.auth, setUser);
+            }, [fb]);
+
+            useEffect(() => {
+                if (!fb || !user) return;
+                const q = fb.query(
+                    fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', `list-${groupId}`),
+                    fb.orderBy('createdAt', 'desc')
+                );
+                return fb.onSnapshot(q, (snapshot) => {
+                    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setItems(data);
+                    localStorage.setItem('shopping_items_cache', JSON.stringify(data));
+                }, (error) => {
+                    console.error("Firestore snapshot error:", error);
+                });
+            }, [fb, user, groupId]);
 
             const addItem = async (e) => {
                 e.preventDefault();
-                if (!inputValue.trim() || !firebaseConfig) return;
-                const name = inputValue.trim();
-                setInputValue('');
-                
+                if (!newItemName.trim() || !fb || !user) return;
+                const name = newItemName.trim();
+                setNewItemName('');
                 try {
-                    await firebase.firestore().collection(`artifacts/${appId}/public/data/items-${groupId}`).add({
-                        name, completed: false, archived: false, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+                    await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', `list-${groupId}`), {
+                        name, completed: false, archived: false, createdAt: fb.serverTimestamp()
                     });
-                } catch (err) {
-                    alert("追加に失敗しました。設定を確認してください。");
+                } catch (e) {
+                    console.error("Add item error:", e);
                 }
             };
 
             const toggle = async (item) => {
-                await firebase.firestore().collection(`artifacts/${appId}/public/data/items-${groupId}`).doc(item.id).update({
+                if (!fb || !user) return;
+                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `list-${groupId}`, item.id), {
                     completed: !item.completed
                 });
             };
 
-            const archive = async (id) => {
-                await firebase.firestore().collection(`artifacts/${appId}/public/data/items-${groupId}`).doc(id).update({ archived: true });
+            const archive = async (item) => {
+                if (!fb || !user) return;
+                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `list-${groupId}`, item.id), {
+                    archived: true
+                });
             };
 
             const activeItems = items.filter(i => !i.archived);
-            const historyItems = items.filter(i => i.archived);
+            const archivedItems = items.filter(i => i.archived);
 
-            if (!firebaseConfig) {
+            if (!fb) {
                 return (
-                    <div className="p-10 text-center">
-                        <p className="text-red-500 font-bold">設定情報が見つかりません</p>
-                        <p className="text-sm text-gray-500 mt-2">一度Geminiのプレビュー画面を開いてから、再度こちらにアクセスしてください。</p>
+                    <div className="flex flex-col items-center justify-center h-screen bg-gray-50 p-6 text-center">
+                        <div className="w-12 h-12 border-4 border-green-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+                        <p className="text-gray-500 font-bold">アプリを起動中...</p>
+                        <p className="text-xs text-gray-400 mt-2">設定の読み込みを待機しています</p>
                     </div>
                 );
             }
 
             return (
-                <div className="flex flex-col h-screen max-w-md mx-auto bg-white overflow-hidden">
-                    <header className="bg-white border-b px-6 py-4 safe-top flex justify-between items-center shrink-0">
-                        <h1 className="text-xl font-black text-gray-800 tracking-tight">🛒 {groupId}のメモ</h1>
-                        <button onClick={() => setIsSettingsOpen(true)} className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">⚙️</button>
+                <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 shadow-2xl relative">
+                    <header className="bg-white/80 backdrop-blur-md px-6 py-4 pt-safe border-b border-gray-100 flex justify-between items-center sticky top-0 z-20">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-green-500 p-2 rounded-xl text-white shadow-lg shadow-green-200">
+                                <i data-lucide="shopping-cart" className="w-5 h-5"></i>
+                            </div>
+                            <h1 className="font-bold text-xl tracking-tight text-gray-800">{groupId === 'family' ? '買い物メモ' : groupId}</h1>
+                        </div>
+                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400 hover:bg-gray-100 rounded-full transition-colors">
+                            <i data-lucide="settings" className="w-6 h-6"></i>
+                        </button>
                     </header>
 
-                    <main className="flex-1 overflow-y-auto px-4 py-4">
-                        {tab === 'list' ? (
-                            activeItems.map(item => (
-                                <div key={item.id} className="bg-white mb-3 p-4 rounded-2xl shadow-sm border flex items-center gap-4" onClick={() => toggle(item)}>
-                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}>
-                                        {item.completed && "✓"}
+                    <main className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+                        {activeTab === 'list' ? (
+                            activeItems.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-64 text-gray-300">
+                                    <i data-lucide="package-open" className="w-16 h-16 mb-4 opacity-20"></i>
+                                    <p className="font-medium">買うものはありません</p>
+                                </div>
+                            ) : (
+                                activeItems.map(item => (
+                                    <div key={item.id} 
+                                        onClick={() => toggle(item)}
+                                        className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4 active:scale-[0.98] transition-all animate-item">
+                                        <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}>
+                                            {item.completed && <i data-lucide="check" className="w-4 h-4 stroke-[4]"></i>}
+                                        </div>
+                                        <span className={`text-lg flex-1 truncate ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700 font-medium'}`}>{item.name}</span>
+                                        {!item.completed && (
+                                            <button onClick={(e) => { e.stopPropagation(); archive(item); }} className="text-gray-300 p-2">
+                                                <i data-lucide="archive" className="w-5 h-5"></i>
+                                            </button>
+                                        )}
                                     </div>
-                                    <span className={`flex-1 text-lg ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700'}`}>{item.name}</span>
-                                    {item.completed && <button onClick={(e) => { e.stopPropagation(); archive(item.id); }} className="text-xs bg-gray-100 px-2 py-1 rounded">完了</button>}
+                                ))
+                            )
+                        ) : (
+                            archivedItems.map(item => (
+                                <div key={item.id} className="bg-white/50 p-4 rounded-2xl border border-gray-100 flex items-center gap-4 opacity-60">
+                                    <span className="text-gray-400 line-through flex-1">{item.name}</span>
+                                    <i data-lucide="history" className="w-5 h-5 text-gray-300"></i>
                                 </div>
                             ))
-                        ) : (
-                            historyItems.map(item => <div key={item.id} className="p-3 border-b text-gray-400 line-through">{item.name}</div>)
                         )}
                     </main>
 
-                    <div className="p-4 bg-white border-t safe-bottom">
-                        <form onSubmit={addItem} className="flex gap-2">
-                            <input value={inputValue} onChange={e => setInputValue(e.target.value)} placeholder="何を買う？" className="flex-1 bg-gray-100 rounded-xl px-4 py-3 outline-none" />
-                            <button type="submit" className="bg-green-500 text-white px-6 py-3 rounded-xl font-bold">+</button>
-                        </form>
-                    </div>
+                    {activeTab === 'list' && (
+                        <div className="absolute bottom-24 left-0 right-0 px-4">
+                            <form onSubmit={addItem} className="flex gap-2 bg-white p-2 rounded-full shadow-2xl border border-gray-100">
+                                <input 
+                                    value={newItemName}
+                                    onChange={e => setNewItemName(e.target.value)}
+                                    placeholder="何を買う？"
+                                    className="flex-1 px-4 py-2 outline-none bg-transparent text-lg"
+                                />
+                                <button disabled={!newItemName.trim() || !user} className="bg-green-500 text-white p-3 rounded-full shadow-lg disabled:opacity-20 active:scale-90 transition-transform">
+                                    <i data-lucide="plus" className="w-6 h-6 stroke-[3]"></i>
+                                </button>
+                            </form>
+                        </div>
+                    )}
 
-                    <nav className="flex border-t bg-white safe-bottom">
-                        <button onClick={() => setTab('list')} className={`flex-1 py-4 text-center ${tab === 'list' ? 'text-green-600 font-bold' : 'text-gray-400'}`}>リスト</button>
-                        <button onClick={() => setTab('history')} className={`flex-1 py-4 text-center ${tab === 'history' ? 'text-green-600 font-bold' : 'text-gray-400'}`}>履歴</button>
+                    <nav className="bg-white/90 backdrop-blur-md border-t border-gray-100 flex justify-around items-center h-20 pb-safe z-10">
+                        <button onClick={() => setActiveTab('list')} className={`flex flex-col items-center gap-1 ${activeTab === 'list' ? 'text-green-600' : 'text-gray-400'}`}>
+                            <i data-lucide="shopping-basket" className="w-7 h-7"></i>
+                            <span className="text-[10px] font-bold">リスト</span>
+                        </button>
+                        <button onClick={() => setActiveTab('archive')} className={`flex flex-col items-center gap-1 ${activeTab === 'archive' ? 'text-green-600' : 'text-gray-400'}`}>
+                            <i data-lucide="history" className="w-7 h-7"></i>
+                            <span className="text-[10px] font-bold">履歴</span>
+                        </button>
                     </nav>
 
                     {isSettingsOpen && (
-                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-6 z-50">
-                            <div className="bg-white w-full rounded-3xl p-8 shadow-2xl">
-                                <h2 className="text-2xl font-bold mb-4">合言葉</h2>
-                                <input className="w-full border-2 rounded-2xl p-4 mb-6 outline-none focus:border-green-500 text-xl font-bold" defaultValue={groupId} onBlur={e => { setGroupId(e.target.value); localStorage.setItem('shop_group', e.target.value); }} />
-                                <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold">完了</button>
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-end justify-center">
+                            <div className="bg-white w-full max-w-md rounded-t-3xl p-8 pb-safe shadow-2xl">
+                                <h2 className="text-2xl font-black mb-4 flex items-center gap-2">
+                                    <i data-lucide="users" className="text-green-500 w-8 h-8"></i>共有設定
+                                </h2>
+                                <p className="text-gray-500 mb-6">家族と同じ「合言葉」を入力して同期します。</p>
+                                <input 
+                                    defaultValue={groupId}
+                                    onBlur={e => {
+                                        const val = e.target.value.trim();
+                                        if(val) {
+                                            setGroupId(val);
+                                            localStorage.setItem('shopping_app_group_id', val);
+                                        }
+                                    }}
+                                    className="w-full bg-gray-50 border-2 border-gray-100 rounded-2xl px-6 py-4 text-xl font-bold outline-none focus:border-green-500 transition-colors"
+                                    placeholder="sato-family"
+                                />
+                                <button onClick={() => setIsSettingsOpen(false)} className="w-full mt-6 py-4 bg-green-500 text-white rounded-2xl font-bold text-lg shadow-xl shadow-green-100 active:scale-95 transition-transform">閉じる</button>
                             </div>
                         </div>
                     )}
@@ -155,6 +250,9 @@
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
+        
+        // Lucide icon replacement helper
+        setInterval(() => lucide.createIcons(), 500);
     </script>
 </body>
 </html>

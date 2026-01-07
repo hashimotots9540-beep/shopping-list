@@ -96,7 +96,7 @@
         }
         init();
 
-        // Service Worker for Android (Required for Install Prompt)
+        // Service Worker for Android
         if ('serviceWorker' in navigator) {
             const swCode = `
                 self.addEventListener('install', e => self.skipWaiting());
@@ -157,13 +157,11 @@
         }
 
         // --- 安全なIconコンポーネント ---
-        // ReactとLucideのDOM競合を防ぐため、spanタグの中にアイコンを描画します
         const Icon = ({ name, size = 24, className = "" }) => {
             const ref = useRef(null);
             
             useEffect(() => {
                 if (window.lucide && ref.current) {
-                    // 一旦中身を空にしてから新しいアイコンを作る
                     ref.current.innerHTML = `<i data-lucide="${name}"></i>`;
                     window.lucide.createIcons({
                         root: ref.current,
@@ -201,7 +199,6 @@
             };
 
             const handleClick = (e) => {
-                // スワイプ中でなければトグル
                 if (Math.abs(currentX) < 5 && isActive) {
                     onToggle(item);
                 }
@@ -210,8 +207,8 @@
             return (
                 <div className="swipe-item mb-3 shadow-sm border border-gray-100 fade-in">
                     <div className="absolute inset-y-0 right-0 flex items-center pr-6 text-white gap-1">
-                        <Icon name="archive" size={18} />
-                        <span className="text-[10px] font-bold">完了</span>
+                        <Icon name="archive" size={24} />
+                        <span className="text-xs font-bold">完了</span>
                     </div>
                     <div 
                         className="swipe-content"
@@ -223,20 +220,22 @@
                     >
                         {isActive ? (
                             <>
-                                <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}>
-                                    {item.completed && <Icon name="check" size={20} />}
-                                </div>
-                                <span className={`text-lg ml-4 flex-1 truncate font-medium ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700'}`}>
+                                <button 
+                                    className={`w-10 h-10 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}
+                                >
+                                    {item.completed && <Icon name="check" size={24} />}
+                                </button>
+                                <span className={`text-xl ml-4 flex-1 truncate font-medium ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700'}`}>
                                     {item.name}
                                 </span>
-                                {item.completed && <div className="text-gray-300"><Icon name="chevron-left" size={16} /></div>}
+                                {item.completed && <div className="text-gray-300"><Icon name="chevron-left" size={20} /></div>}
                             </>
                         ) : (
                             <>
-                                <span className="text-gray-400 line-through flex-1 truncate">{item.name}</span>
-                                <div className="flex gap-2 shrink-0">
-                                    <button onClick={(e) => { e.stopPropagation(); onRestore(item); }} className="p-3 text-green-600 bg-green-50 rounded-full active:scale-90"><Icon name="rotate-ccw" size={18} /></button>
-                                    <button onClick={(e) => { e.stopPropagation(); onDelete(item.id); }} className="p-3 text-red-400 bg-red-50 rounded-full active:scale-90"><Icon name="trash-2" size={18} /></button>
+                                <span className="text-gray-400 line-through flex-1 truncate text-lg">{item.name}</span>
+                                <div className="flex gap-3 shrink-0">
+                                    <button onClick={(e) => { e.stopPropagation(); onRestore(item); }} className="p-3 text-green-600 bg-green-50 rounded-full active:scale-90"><Icon name="rotate-ccw" size={24} /></button>
+                                    <button onClick={(e) => { e.stopPropagation(); onDelete(item.id); }} className="p-3 text-red-400 bg-red-50 rounded-full active:scale-90"><Icon name="trash-2" size={24} /></button>
                                 </div>
                             </>
                         )}
@@ -292,8 +291,6 @@
 
             const toggle = async (item) => {
                 if (!fb) return;
-                // コンポーネントがIconの再レンダリングでクラッシュしないようにawaitしない手もあるが、
-                // 今回はIconコンポーネントを修正したので大丈夫なはず
                 try {
                     await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { completed: !item.completed });
                 } catch (e) { console.error(e); }
@@ -320,15 +317,15 @@
                 <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 overflow-hidden shadow-2xl">
                     <header className="bg-white px-6 header-pad border-b flex justify-between items-center shrink-0 z-20">
                         <div className="flex items-center gap-3 py-2">
-                            <div className="bg-green-500 text-white p-2 rounded-xl"><Icon name="shopping-cart" size={20} /></div>
-                            <h1 className="font-bold text-xl text-gray-800">{groupId}</h1>
+                            <div className="bg-green-500 text-white p-2 rounded-xl"><Icon name="shopping-cart" size={24} /></div>
+                            <h1 className="font-bold text-2xl text-gray-800">{groupId}</h1>
                         </div>
-                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400 active:bg-gray-100 rounded-full"><Icon name="settings" /></button>
+                        <button onClick={() => setIsSettingsOpen(true)} className="p-3 text-gray-400 active:bg-gray-100 rounded-full"><Icon name="settings" size={28} /></button>
                     </header>
 
                     <main className="flex-1 overflow-y-auto px-4 py-4">
                         {items.filter(i => (activeTab === 'list' ? !i.archived : i.archived)).length === 0 ? (
-                            <div className="text-center py-20 text-gray-300 font-medium">{activeTab === 'list' ? 'リストは空です' : '履歴はありません'}</div>
+                            <div className="text-center py-20 text-gray-300 font-medium text-lg">{activeTab === 'list' ? 'リストは空です' : '履歴はありません'}</div>
                         ) : (
                             items.filter(i => (activeTab === 'list' ? !i.archived : i.archived)).map(item => (
                                 <ShoppingItem key={item.id} item={item} onToggle={toggle} onArchive={archive} onRestore={restore} onDelete={deleteItem} isActive={activeTab === 'list'} />
@@ -338,19 +335,21 @@
 
                     {activeTab === 'list' && (
                         <div className="p-4 bg-white border-t z-20 footer-pad shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
-                            <form onSubmit={addItem} className="flex gap-3 bg-gray-100 p-1.5 rounded-2xl">
-                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="追加..." className="flex-1 bg-transparent px-4 py-2 outline-none font-bold text-gray-700" />
-                                <button type="submit" disabled={!newItemName.trim()} className="bg-green-500 text-white w-12 h-12 flex items-center justify-center rounded-xl font-bold shadow-lg active:scale-95 disabled:opacity-30"><Icon name="plus" size={24} /></button>
+                            <form onSubmit={addItem} className="flex gap-3 bg-gray-100 p-2 rounded-2xl">
+                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="追加..." className="flex-1 bg-transparent px-4 py-2 outline-none font-bold text-xl text-gray-700" />
+                                <button type="submit" disabled={!newItemName.trim()} className="bg-green-500 text-white w-14 h-14 flex items-center justify-center rounded-xl font-bold shadow-lg active:scale-95 disabled:opacity-30"><Icon name="plus" size={32} /></button>
                             </form>
                         </div>
                     )}
 
-                    <nav className="bg-white border-t flex justify-around items-center h-16 footer-pad shrink-0 z-20">
+                    <nav className="bg-white border-t flex justify-around items-center h-20 footer-pad shrink-0 z-20">
                         <button onClick={() => setActiveTab('list')} className={`flex flex-col items-center gap-1 flex-1 py-2 ${activeTab === 'list' ? 'text-green-600' : 'text-gray-400'}`}>
-                            <Icon name="list" size={24} /><span className="text-[10px] font-bold">リスト</span>
+                            <Icon name="list" size={32} />
+                            <span className="text-xs font-bold">リスト</span>
                         </button>
                         <button onClick={() => setActiveTab('archive')} className={`flex flex-col items-center gap-1 flex-1 py-2 ${activeTab === 'archive' ? 'text-green-600' : 'text-gray-400'}`}>
-                            <Icon name="history" size={24} /><span className="text-[10px] font-bold">履歴</span>
+                            <Icon name="history" size={32} />
+                            <span className="text-xs font-bold">履歴</span>
                         </button>
                     </nav>
 

@@ -11,39 +11,40 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="買い物メモ">
     
+    <!-- Icon -->
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png">
     
-    <!-- Web App Manifest -->
+    <!-- Web App Manifest (Android Install Fix) -->
     <link rel="manifest" id="pwa-manifest">
     <script>
         const manifest = {
-            "id": "shopping-memo-app-v2",
             "name": "買い物メモ",
             "short_name": "買い物",
-            "start_url": "./index.html",
+            "start_url": ".",
             "display": "standalone",
             "background_color": "#ffffff",
             "theme_color": "#22c55e",
+            "orientation": "portrait",
             "icons": [
                 {
                     "src": "https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png",
                     "sizes": "192x192",
                     "type": "image/png",
-                    "purpose": "any"
+                    "purpose": "any maskable"
                 },
                 {
                     "src": "https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png",
                     "sizes": "512x512",
-                    "type": "image/png"
+                    "type": "image/png",
+                    "purpose": "any maskable"
                 }
             ]
         };
-        const stringManifest = JSON.stringify(manifest);
-        const blob = new Blob([stringManifest], {type: 'application/json'});
-        const manifestURL = URL.createObjectURL(blob);
-        document.querySelector('#pwa-manifest').setAttribute('href', manifestURL);
+        const blob = new Blob([JSON.stringify(manifest)], {type: 'application/json'});
+        document.querySelector('#pwa-manifest').setAttribute('href', URL.createObjectURL(blob));
     </script>
 
+    <!-- Libraries -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -55,7 +56,10 @@
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
         import { getFirestore, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-         const firebaseConfig = {
+        // ==========================================
+        // ★ここにあなたのFirebase設定を貼り付けてください★
+        // ==========================================
+        const firebaseConfig = {
   apiKey: "AIzaSyDIAGr2mjSyqrk22jIqrEsfcSP9CCmr5wM",
   authDomain: "awsome-ee102.firebaseapp.com",
   projectId: "awsome-ee102",
@@ -65,35 +69,35 @@
   measurementId: "G-TR7LXHTE8Z"
 };
 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-shopping-app';
+        const appId = "shopping-app-v1";
 
         async function init() {
             try {
-                const app = initializeApp(firebaseConfig);
-                const auth = getAuth(app);
-                const db = getFirestore(app);
-                
-                // Auth initialization
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
+                // Configが空の場合のフォールバック（プレビュー環境用）
+                let config = firebaseConfig;
+                if (!config.apiKey && typeof __firebase_config !== 'undefined') {
+                    config = JSON.parse(__firebase_config);
                 }
 
-                window.FB_SERVICES = { 
-                    auth, db, appId, collection, query, onSnapshot, orderBy, 
-                    addDoc, updateDoc, deleteDoc, doc, serverTimestamp, 
-                    signInAnonymously, onAuthStateChanged, signInWithCustomToken 
-                };
-                
-                // Dispatch event to notify React
-                window.dispatchEvent(new CustomEvent('firebase-ready'));
+                if (config && config.apiKey) {
+                    const app = initializeApp(config);
+                    const auth = getAuth(app);
+                    const db = getFirestore(app);
+                    
+                    if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
+                    }
+
+                    window.FB_SERVICES = { auth, db, appId, collection, query, onSnapshot, orderBy, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, signInAnonymously, onAuthStateChanged };
+                    window.dispatchEvent(new CustomEvent('firebase-ready'));
+                }
             } catch (e) { console.error("Firebase Init Error:", e); }
         }
-
         init();
 
-        // Service Worker for Android PWA
+        // Service Worker for Android (Required for Install Prompt)
         if ('serviceWorker' in navigator) {
             const swCode = `
                 self.addEventListener('install', e => self.skipWaiting());
@@ -101,52 +105,30 @@
                 self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
             `;
             const blob = new Blob([swCode], { type: 'text/javascript' });
-            const swUrl = URL.createObjectURL(blob);
-            navigator.serviceWorker.register(swUrl).catch(err => console.log('SW failed', err));
+            navigator.serviceWorker.register(URL.createObjectURL(blob))
+                .then(() => console.log('SW Registered'))
+                .catch(e => console.log('SW Error:', e));
         }
     </script>
 
     <style>
-        :root {
-            --sat: env(safe-area-inset-top);
-            --sab: env(safe-area-inset-bottom);
-        }
-        
-        * { 
-            touch-action: manipulation; 
-            -webkit-tap-highlight-color: transparent;
-            outline: none;
-        }
-
+        :root { --sat: env(safe-area-inset-top); --sab: env(safe-area-inset-bottom); }
+        * { touch-action: manipulation; -webkit-tap-highlight-color: transparent; outline: none; }
         body { 
-            overscroll-behavior-y: none; 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: #f9fafb;
-            user-select: none;
-            -webkit-user-select: none;
-            -webkit-touch-callout: none;
+            user-select: none; -webkit-user-select: none;
+            overscroll-behavior-y: none;
         }
-
-        input { 
-            user-select: text; 
-            -webkit-user-select: text; 
-        }
-
-        .header-padding { padding-top: calc(var(--sat) + 12px); }
-        .footer-padding { padding-bottom: calc(var(--sab) + 8px); }
-
-        .swipe-container { position: relative; overflow: hidden; border-radius: 1.25rem; background: #fb923c; }
+        input { user-select: text; -webkit-user-select: text; }
+        .header-pad { padding-top: calc(var(--sat) + 12px); }
+        .footer-pad { padding-bottom: calc(var(--sab) + 8px); }
+        .swipe-item { position: relative; overflow: hidden; border-radius: 1rem; background: #fb923c; }
         .swipe-content { 
-            position: relative; 
-            z-index: 10; 
-            transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1); 
-            background: white; 
-            display: flex;
-            align-items: center;
-            padding: 1rem;
-            width: 100%;
+            position: relative; z-index: 10; background: white; 
+            transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
+            display: flex; align-items: center; padding: 1rem; width: 100%; 
         }
-        
         .fade-in { animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
@@ -155,7 +137,26 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useCallback, useRef } = React;
+        const { useState, useEffect, useRef, Component } = React;
+
+        // --- Error Boundary (白画面防止) ---
+        class ErrorBoundary extends Component {
+            constructor(props) { super(props); this.state = { hasError: false }; }
+            static getDerivedStateFromError(error) { return { hasError: true }; }
+            componentDidCatch(error, errorInfo) { console.error("App Error:", error, errorInfo); }
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="flex h-screen items-center justify-center flex-col p-6 text-center">
+                            <h2 className="text-xl font-bold text-gray-800 mb-2">エラーが発生しました</h2>
+                            <p className="text-gray-500 mb-4 text-sm">アプリを再読み込みしてください。</p>
+                            <button onClick={() => window.location.reload()} className="bg-green-500 text-white px-6 py-3 rounded-xl font-bold">再読み込み</button>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
 
         const Icon = ({ name, size = 24, className = "" }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
@@ -166,7 +167,6 @@
             const [startX, setStartX] = useState(0);
             const [currentX, setCurrentX] = useState(0);
             const [isDragging, setIsDragging] = useState(false);
-            const itemRef = useRef(null);
 
             const handleTouchStart = (e) => {
                 if (!isActive) return;
@@ -177,52 +177,44 @@
             const handleTouchMove = (e) => {
                 if (!isDragging) return;
                 const diff = e.touches[0].clientX - startX;
-                if (diff < 0) {
-                    setCurrentX(Math.max(diff, -100));
-                }
+                if (diff < 0) setCurrentX(Math.max(diff, -100)); // 左スワイプのみ許可
             };
 
             const handleTouchEnd = () => {
                 if (!isDragging) return;
                 setIsDragging(false);
-                if (currentX < -70) {
-                    onArchive(item);
-                }
+                if (currentX < -70) onArchive(item);
                 setCurrentX(0);
             };
 
-            const handleToggleClick = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onToggle(item);
+            // クリックハンドラ：スワイプ中でない場合のみ実行
+            const handleClick = (e) => {
+                if (Math.abs(currentX) > 5) return; // スワイプ中は無視
+                if (isActive) onToggle(item);
             };
 
             return (
-                <div className="swipe-container mb-3 shadow-sm border border-gray-100 fade-in">
+                <div className="swipe-item mb-3 shadow-sm border border-gray-100 fade-in">
                     <div className="absolute inset-y-0 right-0 flex items-center pr-6 text-white gap-1">
                         <Icon name="archive" size={18} />
-                        <span className="text-[10px] font-bold uppercase">Archive</span>
+                        <span className="text-[10px] font-bold">完了</span>
                     </div>
                     <div 
-                        ref={itemRef}
                         className="swipe-content"
                         style={{ transform: `translateX(${currentX}px)` }}
                         onTouchStart={handleTouchStart}
                         onTouchMove={handleTouchMove}
                         onTouchEnd={handleTouchEnd}
+                        onClick={handleClick}
                     >
                         {isActive ? (
                             <>
                                 <button 
-                                    onClick={handleToggleClick}
-                                    className={`w-8 h-8 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}
+                                    className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}
                                 >
                                     {item.completed && <Icon name="check" size={20} />}
                                 </button>
-                                <span 
-                                    onClick={handleToggleClick}
-                                    className={`text-lg ml-4 flex-1 truncate font-medium ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700'}`}
-                                >
+                                <span className={`text-lg ml-4 flex-1 truncate font-medium ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700'}`}>
                                     {item.name}
                                 </span>
                                 {item.completed && <Icon name="chevron-left" size={16} className="text-gray-300" />}
@@ -231,8 +223,8 @@
                             <>
                                 <span className="text-gray-400 line-through flex-1 truncate">{item.name}</span>
                                 <div className="flex gap-2 shrink-0">
-                                    <button onClick={() => onRestore(item)} className="p-3 text-green-600 bg-green-50 rounded-full active:scale-90"><Icon name="rotate-ccw" size={18} /></button>
-                                    <button onClick={() => onDelete(item.id)} className="p-3 text-red-400 bg-red-50 rounded-full active:scale-90"><Icon name="trash-2" size={18} /></button>
+                                    <button onClick={(e) => { e.stopPropagation(); onRestore(item); }} className="p-3 text-green-600 bg-green-50 rounded-full active:scale-90"><Icon name="rotate-ccw" size={18} /></button>
+                                    <button onClick={(e) => { e.stopPropagation(); onDelete(item.id); }} className="p-3 text-red-400 bg-red-50 rounded-full active:scale-90"><Icon name="trash-2" size={18} /></button>
                                 </div>
                             </>
                         )}
@@ -259,109 +251,85 @@
 
             useEffect(() => {
                 if (!fb) return;
-                const unsubscribe = fb.onAuthStateChanged(fb.auth, (u) => {
-                    setUser(u);
-                });
-                return unsubscribe;
+                const unsub = fb.onAuthStateChanged(fb.auth, u => setUser(u));
+                return unsub;
             }, [fb]);
 
             useEffect(() => {
                 if (!fb || !user) return;
-                const colName = `shopping-list-${groupId}`;
-                const q = fb.query(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', colName), fb.orderBy('createdAt', 'desc'));
-                
-                const unsubscribe = fb.onSnapshot(q, (ss) => {
+                const q = fb.query(
+                    fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`),
+                    fb.orderBy('createdAt', 'desc')
+                );
+                return fb.onSnapshot(q, (ss) => {
                     setItems(ss.docs.map(d => ({ id: d.id, ...d.data() })));
-                }, (err) => console.error("Firestore error:", err));
-                
-                return unsubscribe;
+                }, console.error);
             }, [fb, user, groupId]);
 
             const addItem = async (e) => {
                 e.preventDefault();
+                if (!newItemName.trim() || !fb || !user) return;
                 const name = newItemName.trim();
-                if (!name || !fb || !user) return;
                 setNewItemName('');
-                await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`), {
-                    name, completed: false, archived: false, createdAt: fb.serverTimestamp()
-                });
+                try {
+                    await fb.addDoc(fb.collection(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`), {
+                        name, completed: false, archived: false, createdAt: fb.serverTimestamp()
+                    });
+                } catch(err) { alert("追加エラー: " + err.message); }
             };
 
             const toggle = async (item) => {
-                if (!fb || !user) return;
-                try {
-                    await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { 
-                        completed: !item.completed 
-                    });
-                } catch (e) { console.error("Update error:", e); }
+                if (!fb) return;
+                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { completed: !item.completed });
             };
 
             const archive = async (item) => {
-                if (!fb || !user) return;
+                if (!fb) return;
                 await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { archived: true });
             };
 
             const restore = async (item) => {
-                if (!fb || !user) return;
+                if (!fb) return;
                 await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { archived: false, completed: false });
             };
 
             const deleteItem = async (id) => {
-                if (!fb || !user) return;
+                if (!fb || !confirm("完全に削除しますか？")) return;
                 await fb.deleteDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, id));
             };
 
-            if (!fb || !user) return <div className="flex h-screen items-center justify-center text-gray-400 font-bold animate-pulse">読み込み中...</div>;
-
-            const displayItems = items.filter(i => (activeTab === 'list' ? !i.archived : i.archived));
+            if (!fb) return <div className="flex h-screen items-center justify-center text-gray-400 font-bold animate-pulse">CONNECTING...</div>;
 
             return (
                 <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 overflow-hidden shadow-2xl">
-                    <header className="bg-white px-6 header-padding border-b flex justify-between items-center shrink-0 z-20">
+                    <header className="bg-white px-6 header-pad border-b flex justify-between items-center shrink-0 z-20">
                         <div className="flex items-center gap-3 py-2">
                             <div className="bg-green-500 text-white p-2 rounded-xl"><Icon name="shopping-cart" size={20} /></div>
                             <h1 className="font-bold text-xl text-gray-800">{groupId}</h1>
                         </div>
-                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400 active:bg-gray-100 rounded-full">
-                            <Icon name="settings" />
-                        </button>
+                        <button onClick={() => setIsSettingsOpen(true)} className="p-2 text-gray-400 active:bg-gray-100 rounded-full"><Icon name="settings" /></button>
                     </header>
 
                     <main className="flex-1 overflow-y-auto px-4 py-4">
-                        {displayItems.length === 0 ? (
-                            <div className="text-center py-20 text-gray-300 font-medium">リストが空です</div>
+                        {items.filter(i => (activeTab === 'list' ? !i.archived : i.archived)).length === 0 ? (
+                            <div className="text-center py-20 text-gray-300 font-medium">{activeTab === 'list' ? 'リストは空です' : '履歴はありません'}</div>
                         ) : (
-                            displayItems.map(item => (
-                                <ShoppingItem 
-                                    key={item.id} 
-                                    item={item} 
-                                    onToggle={toggle} 
-                                    onArchive={archive} 
-                                    onRestore={restore}
-                                    onDelete={deleteItem} 
-                                    isActive={activeTab === 'list'} 
-                                />
+                            items.filter(i => (activeTab === 'list' ? !i.archived : i.archived)).map(item => (
+                                <ShoppingItem key={item.id} item={item} onToggle={toggle} onArchive={archive} onRestore={restore} onDelete={deleteItem} isActive={activeTab === 'list'} />
                             ))
                         )}
                     </main>
 
                     {activeTab === 'list' && (
-                        <div className="p-4 bg-white border-t z-20 footer-padding shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
+                        <div className="p-4 bg-white border-t z-20 footer-pad shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
                             <form onSubmit={addItem} className="flex gap-3 bg-gray-100 p-1.5 rounded-2xl">
-                                <input 
-                                    value={newItemName} 
-                                    onChange={e => setNewItemName(e.target.value)} 
-                                    placeholder="追加..." 
-                                    className="flex-1 bg-transparent px-4 py-2 outline-none font-bold text-gray-700" 
-                                />
-                                <button type="submit" disabled={!newItemName.trim()} className="bg-green-500 text-white w-12 h-12 flex items-center justify-center rounded-xl font-bold shadow-lg active:scale-95 disabled:opacity-30">
-                                    <Icon name="plus" size={24} />
-                                </button>
+                                <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="追加..." className="flex-1 bg-transparent px-4 py-2 outline-none font-bold text-gray-700" />
+                                <button type="submit" disabled={!newItemName.trim()} className="bg-green-500 text-white w-12 h-12 flex items-center justify-center rounded-xl font-bold shadow-lg active:scale-95 disabled:opacity-30"><Icon name="plus" size={24} /></button>
                             </form>
                         </div>
                     )}
 
-                    <nav className="bg-white border-t flex justify-around items-center h-16 footer-padding shrink-0 z-20">
+                    <nav className="bg-white border-t flex justify-around items-center h-16 footer-pad shrink-0 z-20">
                         <button onClick={() => setActiveTab('list')} className={`flex flex-col items-center gap-1 flex-1 py-2 ${activeTab === 'list' ? 'text-green-600' : 'text-gray-400'}`}>
                             <Icon name="list" size={24} /><span className="text-[10px] font-bold">リスト</span>
                         </button>
@@ -372,17 +340,9 @@
 
                     {isSettingsOpen && (
                         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-end justify-center">
-                            <div className="bg-white w-full rounded-t-3xl p-8 shadow-2xl animate-in slide-in-from-bottom-full footer-padding">
-                                <h2 className="text-xl font-bold mb-4">共有する合言葉</h2>
-                                <input 
-                                    defaultValue={groupId} 
-                                    onBlur={e => { 
-                                        const v = e.target.value.trim() || 'family';
-                                        setGroupId(v); 
-                                        localStorage.setItem('shopping_app_group_id', v); 
-                                    }} 
-                                    className="w-full bg-gray-50 border-2 rounded-2xl p-4 mb-6 font-bold text-lg" 
-                                />
+                            <div className="bg-white w-full rounded-t-3xl p-8 shadow-2xl animate-in slide-in-from-bottom-full footer-pad">
+                                <h2 className="text-xl font-bold mb-4">共有ID</h2>
+                                <input defaultValue={groupId} onBlur={e => { setGroupId(e.target.value || 'family'); localStorage.setItem('shopping_app_group_id', e.target.value || 'family'); }} className="w-full bg-gray-50 border-2 rounded-2xl p-4 mb-6 font-bold text-lg" />
                                 <button onClick={() => setIsSettingsOpen(false)} className="w-full bg-green-500 text-white py-4 rounded-2xl font-bold">閉じる</button>
                             </div>
                         </div>
@@ -392,7 +352,7 @@
         };
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        root.render(<ErrorBoundary><App /></ErrorBoundary>);
     </script>
 </body>
 </html>

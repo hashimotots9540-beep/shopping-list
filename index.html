@@ -58,7 +58,7 @@
         // ==========================================
         // ★ここにあなたのFirebase設定を貼り付けてください★
         // ==========================================
- const firebaseConfig = {
+        const firebaseConfig = {
   apiKey: "AIzaSyDIAGr2mjSyqrk22jIqrEsfcSP9CCmr5wM",
   authDomain: "awsome-ee102.firebaseapp.com",
   projectId: "awsome-ee102",
@@ -73,7 +73,6 @@
         async function init() {
             try {
                 let config = firebaseConfig;
-                // プレビュー環境用の自動取得ロジック
                 if (!config.apiKey && typeof __firebase_config !== 'undefined') {
                     config = JSON.parse(__firebase_config);
                 }
@@ -96,7 +95,6 @@
         }
         init();
 
-        // Service Worker for Android
         if ('serviceWorker' in navigator) {
             const swCode = `
                 self.addEventListener('install', e => self.skipWaiting());
@@ -138,7 +136,6 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, Component } = React;
 
-        // --- Error Boundary ---
         class ErrorBoundary extends Component {
             constructor(props) { super(props); this.state = { hasError: false }; }
             static getDerivedStateFromError(error) { return { hasError: true }; }
@@ -156,10 +153,8 @@
             }
         }
 
-        // --- 安全なIconコンポーネント ---
         const Icon = ({ name, size = 24, className = "" }) => {
             const ref = useRef(null);
-            
             useEffect(() => {
                 if (window.lucide && ref.current) {
                     ref.current.innerHTML = `<i data-lucide="${name}"></i>`;
@@ -170,7 +165,6 @@
                     });
                 }
             }, [name, size, className]);
-
             return <span ref={ref} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} />;
         };
 
@@ -314,7 +308,8 @@
             if (!fb) return <div className="flex h-screen items-center justify-center text-gray-400 font-bold animate-pulse">CONNECTING...</div>;
 
             return (
-                <div className="flex flex-col h-screen max-w-md mx-auto bg-gray-50 overflow-hidden shadow-2xl">
+                // style={{ height: '100dvh' }} でスマホのアドレスバーの伸縮に対応し、画面全体に高さを固定
+                <div className="flex flex-col max-w-md mx-auto bg-gray-50 overflow-hidden shadow-2xl" style={{ height: '100dvh' }}>
                     <header className="bg-white px-6 header-pad border-b flex justify-between items-center shrink-0 z-20">
                         <div className="flex items-center gap-3 py-2">
                             <div className="bg-green-500 text-white p-2 rounded-xl"><Icon name="shopping-cart" size={24} /></div>
@@ -334,7 +329,7 @@
                     </main>
 
                     {activeTab === 'list' && (
-                        <div className="p-4 bg-white border-t z-20 footer-pad shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
+                        <div className="p-4 bg-white border-t z-20 shadow-[0_-4px_10px_rgba(0,0,0,0.05)]">
                             <form onSubmit={addItem} className="flex gap-3 bg-gray-100 p-2 rounded-2xl">
                                 <input value={newItemName} onChange={e => setNewItemName(e.target.value)} placeholder="追加..." className="flex-1 bg-transparent px-4 py-2 outline-none font-bold text-xl text-gray-700" />
                                 <button type="submit" disabled={!newItemName.trim()} className="bg-green-500 text-white w-14 h-14 flex items-center justify-center rounded-xl font-bold shadow-lg active:scale-95 disabled:opacity-30"><Icon name="plus" size={32} /></button>
@@ -342,7 +337,7 @@
                         </div>
                     )}
 
-                    <nav className="bg-white border-t flex justify-around items-center h-20 footer-pad shrink-0 z-20">
+                    <nav className="bg-white border-t flex justify-around items-center h-24 footer-pad shrink-0 z-20">
                         <button onClick={() => setActiveTab('list')} className={`flex flex-col items-center gap-1 flex-1 py-2 ${activeTab === 'list' ? 'text-green-600' : 'text-gray-400'}`}>
                             <Icon name="list" size={32} />
                             <span className="text-xs font-bold">リスト</span>

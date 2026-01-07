@@ -58,7 +58,7 @@
         // ==========================================
         // ★ここにあなたのFirebase設定を貼り付けてください★
         // ==========================================
-        const firebaseConfig = {
+              const firebaseConfig = {
   apiKey: "AIzaSyDIAGr2mjSyqrk22jIqrEsfcSP9CCmr5wM",
   authDomain: "awsome-ee102.firebaseapp.com",
   projectId: "awsome-ee102",
@@ -123,8 +123,8 @@
         .swipe-item { position: relative; overflow: hidden; border-radius: 1rem; background: #fb923c; }
         .swipe-content { 
             position: relative; z-index: 10; background: white; 
-            transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
             display: flex; align-items: center; padding: 1rem; width: 100%; 
+            /* transitionはインラインスタイルで制御するためCSSからは削除 */
         }
         .fade-in { animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -172,28 +172,40 @@
             const [startX, setStartX] = useState(0);
             const [currentX, setCurrentX] = useState(0);
             const [isDragging, setIsDragging] = useState(false);
+            const [isArchiving, setIsArchiving] = useState(false); // アニメーション中のフラグ
 
             const handleTouchStart = (e) => {
-                if (!isActive) return;
+                if (!isActive || isArchiving) return;
                 setStartX(e.touches[0].clientX);
                 setIsDragging(true);
             };
 
             const handleTouchMove = (e) => {
-                if (!isDragging) return;
+                if (!isDragging || isArchiving) return;
                 const diff = e.touches[0].clientX - startX;
-                if (diff < 0) setCurrentX(Math.max(diff, -100));
+                if (diff < 0) setCurrentX(Math.max(diff, -150));
             };
 
             const handleTouchEnd = () => {
                 if (!isDragging) return;
                 setIsDragging(false);
-                if (currentX < -70) onArchive(item);
-                setCurrentX(0);
+                
+                // 判定：しきい値(-70)を超えていたらアーカイブ処理へ
+                if (currentX < -70) {
+                    setIsArchiving(true);
+                    setCurrentX(-1000); // 画面左外へ大きく飛ばす
+                    
+                    // アニメーション時間(0.5s)待ってからデータを削除
+                    setTimeout(() => {
+                        onArchive(item);
+                    }, 500); 
+                } else {
+                    setCurrentX(0); // 元の位置に戻る
+                }
             };
 
             const handleClick = (e) => {
-                if (Math.abs(currentX) < 5 && isActive) {
+                if (Math.abs(currentX) < 5 && isActive && !isArchiving) {
                     onToggle(item);
                 }
             };
@@ -206,7 +218,11 @@
                     </div>
                     <div 
                         className="swipe-content"
-                        style={{ transform: `translateX(${currentX}px)` }}
+                        style={{ 
+                            transform: `translateX(${currentX}px)`,
+                            // ドラッグ中は追従性を高めるためtransitionなし、離した後は滑らかに動かす
+                            transition: isDragging ? 'none' : 'transform 0.5s cubic-bezier(0.2, 0, 0, 1)'
+                        }}
                         onTouchStart={handleTouchStart}
                         onTouchMove={handleTouchMove}
                         onTouchEnd={handleTouchEnd}
@@ -222,7 +238,7 @@
                                 <span className={`text-xl ml-4 flex-1 truncate font-medium ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700'}`}>
                                     {item.name}
                                 </span>
-                                {item.completed && <div className="text-gray-300"><Icon name="chevron-left" size={20} /></div>}
+                                {item.completed && !isDragging && <div className="text-gray-300"><Icon name="chevron-left" size={20} /></div>}
                             </>
                         ) : (
                             <>
@@ -308,7 +324,6 @@
             if (!fb) return <div className="flex h-screen items-center justify-center text-gray-400 font-bold animate-pulse">CONNECTING...</div>;
 
             return (
-                // style={{ height: '100dvh' }} でスマホのアドレスバーの伸縮に対応し、画面全体に高さを固定
                 <div className="flex flex-col max-w-md mx-auto bg-gray-50 overflow-hidden shadow-2xl" style={{ height: '100dvh' }}>
                     <header className="bg-white px-6 header-pad border-b flex justify-between items-center shrink-0 z-20">
                         <div className="flex items-center gap-3 py-2">

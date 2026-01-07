@@ -11,10 +11,9 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="買い物メモ">
     
-    <!-- Icon -->
     <link rel="apple-touch-icon" href="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/shopping-cart.png">
     
-    <!-- Web App Manifest (Android Install Fix) -->
+    <!-- Web App Manifest -->
     <link rel="manifest" id="pwa-manifest">
     <script>
         const manifest = {
@@ -59,7 +58,7 @@
         // ==========================================
         // ★ここにあなたのFirebase設定を貼り付けてください★
         // ==========================================
-        const firebaseConfig = {
+ const firebaseConfig = {
   apiKey: "AIzaSyDIAGr2mjSyqrk22jIqrEsfcSP9CCmr5wM",
   authDomain: "awsome-ee102.firebaseapp.com",
   projectId: "awsome-ee102",
@@ -73,8 +72,8 @@
 
         async function init() {
             try {
-                // Configが空の場合のフォールバック（プレビュー環境用）
                 let config = firebaseConfig;
+                // プレビュー環境用の自動取得ロジック
                 if (!config.apiKey && typeof __firebase_config !== 'undefined') {
                     config = JSON.parse(__firebase_config);
                 }
@@ -113,7 +112,7 @@
 
     <style>
         :root { --sat: env(safe-area-inset-top); --sab: env(safe-area-inset-bottom); }
-        * { touch-action: manipulation; -webkit-tap-highlight-color: transparent; outline: none; }
+        * { -webkit-tap-highlight-color: transparent; outline: none; }
         body { 
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             background-color: #f9fafb;
@@ -139,7 +138,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef, Component } = React;
 
-        // --- Error Boundary (白画面防止) ---
+        // --- Error Boundary ---
         class ErrorBoundary extends Component {
             constructor(props) { super(props); this.state = { hasError: false }; }
             static getDerivedStateFromError(error) { return { hasError: true }; }
@@ -149,7 +148,6 @@
                     return (
                         <div className="flex h-screen items-center justify-center flex-col p-6 text-center">
                             <h2 className="text-xl font-bold text-gray-800 mb-2">エラーが発生しました</h2>
-                            <p className="text-gray-500 mb-4 text-sm">アプリを再読み込みしてください。</p>
                             <button onClick={() => window.location.reload()} className="bg-green-500 text-white px-6 py-3 rounded-xl font-bold">再読み込み</button>
                         </div>
                     );
@@ -158,9 +156,24 @@
             }
         }
 
+        // --- 安全なIconコンポーネント ---
+        // ReactとLucideのDOM競合を防ぐため、spanタグの中にアイコンを描画します
         const Icon = ({ name, size = 24, className = "" }) => {
-            useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
-            return <i data-lucide={name} className={className} style={{ width: size, height: size }}></i>;
+            const ref = useRef(null);
+            
+            useEffect(() => {
+                if (window.lucide && ref.current) {
+                    // 一旦中身を空にしてから新しいアイコンを作る
+                    ref.current.innerHTML = `<i data-lucide="${name}"></i>`;
+                    window.lucide.createIcons({
+                        root: ref.current,
+                        icons: { [name]: window.lucide.icons[name] },
+                        attrs: { class: className, width: size, height: size }
+                    });
+                }
+            }, [name, size, className]);
+
+            return <span ref={ref} style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }} />;
         };
 
         const ShoppingItem = ({ item, onToggle, onArchive, onRestore, onDelete, isActive }) => {
@@ -177,7 +190,7 @@
             const handleTouchMove = (e) => {
                 if (!isDragging) return;
                 const diff = e.touches[0].clientX - startX;
-                if (diff < 0) setCurrentX(Math.max(diff, -100)); // 左スワイプのみ許可
+                if (diff < 0) setCurrentX(Math.max(diff, -100));
             };
 
             const handleTouchEnd = () => {
@@ -187,10 +200,11 @@
                 setCurrentX(0);
             };
 
-            // クリックハンドラ：スワイプ中でない場合のみ実行
             const handleClick = (e) => {
-                if (Math.abs(currentX) > 5) return; // スワイプ中は無視
-                if (isActive) onToggle(item);
+                // スワイプ中でなければトグル
+                if (Math.abs(currentX) < 5 && isActive) {
+                    onToggle(item);
+                }
             };
 
             return (
@@ -209,15 +223,13 @@
                     >
                         {isActive ? (
                             <>
-                                <button 
-                                    className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}
-                                >
+                                <div className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${item.completed ? 'bg-green-500 border-green-500 text-white' : 'border-gray-200'}`}>
                                     {item.completed && <Icon name="check" size={20} />}
-                                </button>
+                                </div>
                                 <span className={`text-lg ml-4 flex-1 truncate font-medium ${item.completed ? 'text-gray-300 line-through' : 'text-gray-700'}`}>
                                     {item.name}
                                 </span>
-                                {item.completed && <Icon name="chevron-left" size={16} className="text-gray-300" />}
+                                {item.completed && <div className="text-gray-300"><Icon name="chevron-left" size={16} /></div>}
                             </>
                         ) : (
                             <>
@@ -280,7 +292,11 @@
 
             const toggle = async (item) => {
                 if (!fb) return;
-                await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { completed: !item.completed });
+                // コンポーネントがIconの再レンダリングでクラッシュしないようにawaitしない手もあるが、
+                // 今回はIconコンポーネントを修正したので大丈夫なはず
+                try {
+                    await fb.updateDoc(fb.doc(fb.db, 'artifacts', fb.appId, 'public', 'data', `shopping-list-${groupId}`, item.id), { completed: !item.completed });
+                } catch (e) { console.error(e); }
             };
 
             const archive = async (item) => {
